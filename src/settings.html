@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BuyTheWay 设置</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        padding: 15px;
+        background-color: var(--vscode-sideBar-background);
+        color: var(--vscode-foreground);
+      }
+      .setting-group {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid var(--vscode-settings-headerBorder);
+        border-radius: 5px;
+        background-color: var(--vscode-settings-textInputBackground);
+      }
+      .setting-group h3 {
+        margin-top: 0;
+        border-bottom: 1px solid var(--vscode-settings-headerBorder);
+        padding-bottom: 5px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input[type="text"],
+      input[type="password"],
+      input[type="number"],
+      textarea {
+        width: calc(100% - 12px); /* Adjust for padding */
+        padding: 5px;
+        margin-bottom: 10px;
+        /* Add fallbacks */
+        border: 1px solid var(--vscode-input-border, #cccccc); /* Fallback gray border */
+        border-radius: 3px;
+        background-color: var(
+          --vscode-input-background,
+          #ffffff
+        ); /* Fallback white background */
+        color: var(
+          --vscode-input-foreground,
+          #000000
+        ); /* Fallback black text */
+      }
+      textarea {
+        min-height: 60px;
+        resize: vertical;
+      }
+      input[type="checkbox"],
+      input[type="radio"] {
+        margin-right: 5px;
+        /* Add basic styling for visibility */
+        appearance: none; /* Remove default styling */
+        -webkit-appearance: none;
+        width: 13px;
+        height: 13px;
+        border: 1px solid var(--vscode-input-border, #999999); /* Fallback gray border */
+        border-radius: 2px;
+        position: relative; /* For positioning the checkmark */
+        vertical-align: middle; /* Align with text */
+        cursor: pointer;
+        background-color: var(
+          --vscode-input-background,
+          #ffffff
+        ); /* Fallback white background */
+      }
+      input[type="checkbox"]:checked::before {
+        content: "✔"; /* Simple checkmark */
+        position: absolute;
+        top: -2px; /* Adjust position */
+        left: 1px; /* Adjust position */
+        font-size: 12px;
+        color: var(
+          --vscode-button-background,
+          #007acc
+        ); /* Use button color or fallback */
+      }
+      input[type="radio"] {
+        border-radius: 50%; /* Make radios round */
+      }
+      input[type="radio"]:checked::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 7px;
+        height: 7px;
+        background-color: var(--vscode-button-background, #007acc);
+        border-radius: 50%;
+      }
+      .radio-group label,
+      .setting-group > label:has(input[type="checkbox"]) {
+        cursor: pointer;
+      }
+      .inline-label {
+        display: inline-block;
+        margin-left: 5px;
+        font-weight: normal;
+        vertical-align: middle; /* Align with custom checkbox */
+      }
+      button {
+        padding: 8px 15px;
+        border: none;
+        border-radius: 3px;
+        background-color: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        cursor: pointer;
+        margin-top: 10px;
+      }
+      button:hover {
+        background-color: var(--vscode-button-hoverBackground);
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>BuyTheWay 插件设置</h2>
+
+    <div class="setting-group">
+      <h3>通用设置</h3>
+      <label for="targetProducts">关注的商品关键词 (每行一个):</label>
+      <textarea id="targetProducts" rows="3"></textarea>
+      <!-- 导入导出关键词 -->
+      <setting-list data-direction="row">
+        <setting-item>
+          <setting-button data-type="primary" id="exportTargetProductsButton"
+            >导出关键词</setting-button
+          >
+        </setting-item>
+        <setting-item>
+          <setting-button data-type="secondary" id="importTargetProductsButton"
+            >导入关键词</setting-button
+          >
+          <input
+            type="file"
+            id="importTargetProductsInput"
+            hidden
+            accept=".txt"
+          />
+        </setting-item>
+      </setting-list>
+
+      <label for="monitoredGroups">监控的群聊/用户 ID (每行一个):</label>
+      <textarea id="monitoredGroups" rows="3"></textarea>
+      <!-- 导入导出群ID -->
+      <setting-list data-direction="row">
+        <setting-item>
+          <setting-button data-type="primary" id="exportMonitoredGroupsButton"
+            >导出群ID</setting-button
+          >
+        </setting-item>
+        <setting-item>
+          <setting-button data-type="secondary" id="importMonitoredGroupsButton"
+            >导入群ID</setting-button
+          >
+          <input
+            type="file"
+            id="importMonitoredGroupsInput"
+            hidden
+            accept=".txt"
+          />
+        </setting-item>
+      </setting-list>
+    </div>
+
+    <div class="setting-group">
+      <h3>邮件通知设置</h3>
+      <label> <input type="checkbox" id="emailEnabled" /> 启用邮件通知 </label>
+
+      <div id="emailDetailsSection" style="display: block !important">
+        <h4>邮件服务器配置</h4>
+        <label for="emailHost">SMTP 服务器地址:</label>
+        <input type="text" id="emailHost" />
+        <label for="emailPort">端口:</label>
+        <input type="number" id="emailPort" placeholder="465" />
+        <label>
+          <input type="checkbox" id="emailSecure" /> 使用 SSL/TLS 加密
+        </label>
+        <label for="emailUser">邮箱账号:</label>
+        <input type="text" id="emailUser" />
+        <label for="emailPass">邮箱密码/授权码:</label>
+        <input type="password" id="emailPass" />
+        <label for="emailTo">收件人邮箱:</label>
+        <input type="text" id="emailTo" />
+      </div>
+    </div>
+
+    <!-- 新增转发设置区域 -->
+    <div class="setting-group">
+      <h3>转发设置</h3>
+
+      <!-- 转发到QQ用户 -->
+      <div class="forward-section">
+        <label>
+          <input type="checkbox" id="forwardToUsersEnabled" /> 启用转发到QQ用户
+        </label>
+
+        <div id="forwardToUsersSection" class="hidden">
+          <label for="forwardToUsers">要转发到的QQ号 (每行一个):</label>
+          <textarea
+            id="forwardToUsers"
+            rows="3"
+            placeholder="请输入QQ号，每行一个"
+          ></textarea>
+
+          <setting-list data-direction="row">
+            <setting-item>
+              <setting-button
+                data-type="primary"
+                id="exportForwardToUsersButton"
+                >导出QQ列表</setting-button
+              >
+            </setting-item>
+            <setting-item>
+              <setting-button
+                data-type="secondary"
+                id="importForwardToUsersButton"
+                >导入QQ列表</setting-button
+              >
+              <input
+                type="file"
+                id="importForwardToUsersInput"
+                hidden
+                accept=".txt"
+              />
+            </setting-item>
+          </setting-list>
+        </div>
+      </div>
+
+      <!-- 转发到QQ群 -->
+      <div class="forward-section" style="margin-top: 15px">
+        <label>
+          <input type="checkbox" id="forwardToGroupsEnabled" /> 启用转发到QQ群
+        </label>
+
+        <div id="forwardToGroupsSection" class="hidden">
+          <label for="forwardToGroups">要转发到的群号 (每行一个):</label>
+          <textarea
+            id="forwardToGroups"
+            rows="3"
+            placeholder="请输入群号，每行一个"
+          ></textarea>
+
+          <setting-list data-direction="row">
+            <setting-item>
+              <setting-button
+                data-type="primary"
+                id="exportForwardToGroupsButton"
+                >导出群列表</setting-button
+              >
+            </setting-item>
+            <setting-item>
+              <setting-button
+                data-type="secondary"
+                id="importForwardToGroupsButton"
+                >导入群列表</setting-button
+              >
+              <input
+                type="file"
+                id="importForwardToGroupsInput"
+                hidden
+                accept=".txt"
+              />
+            </setting-item>
+          </setting-list>
+        </div>
+      </div>
+    </div>
+
+    <setting-button data-type="primary" id="saveSettingsButton"
+      >保存设置</setting-button
+    >
+    <setting-button data-type="secondary" id="testKeywordsButton"
+      >测试关键词</setting-button
+    >
+    <setting-button data-type="secondary" id="testEmailButton"
+      >测试发送邮件</setting-button
+    >
+  </body>
+</html>
