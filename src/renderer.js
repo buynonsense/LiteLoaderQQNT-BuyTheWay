@@ -1111,6 +1111,76 @@ export async function onSettingWindowCreated(view) {
 
         // 4. 添加事件监听器 (确保在 DOM 更新后执行)
 
+        // --- 新增：导入/导出所有配置 ---
+        const exportAllBtn = view.querySelector('#exportAllSettingsButton');
+        const importAllBtn = view.querySelector('#importAllSettingsButton');
+        const importAllInput = view.querySelector('#importAllSettingsInput');
+
+        if (exportAllBtn) {
+            exportAllBtn.addEventListener('click', () => {
+                try {
+                    const currentConfig = getSettingsFromForm(view);
+                    const configJson = JSON.stringify(currentConfig, null, 4); // Pretty print JSON
+                    const blob = new Blob([configJson], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'buytheway_settings.json'; // Suggest filename
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    console.log('[BuyTheWay] All settings exported.');
+                    if (window.buy_the_way_api?.showToast) {
+                        window.buy_the_way_api.showToast('所有配置已导出', 'success');
+                    }
+                } catch (error) {
+                    console.error('[BuyTheWay] Error exporting all settings:', error);
+                    if (window.buy_the_way_api?.showToast) {
+                        window.buy_the_way_api.showToast(`导出配置失败: ${error.message}`, 'error');
+                    }
+                }
+            });
+        }
+
+        if (importAllBtn && importAllInput) {
+            importAllBtn.addEventListener('click', () => importAllInput.click()); // Trigger file input
+
+            importAllInput.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const importedConfig = JSON.parse(e.target.result);
+                        console.log('[BuyTheWay] Importing settings:', importedConfig);
+                        setSettingsToForm(view, importedConfig); // Update the form fields
+                        debouncedAutoSave(); // Trigger auto-save for the imported settings
+                        console.log('[BuyTheWay] All settings imported and applied.');
+                        if (window.buy_the_way_api?.showToast) {
+                            window.buy_the_way_api.showToast('配置已成功导入并应用', 'success');
+                        }
+                    } catch (error) {
+                        console.error('[BuyTheWay] Error importing settings:', error);
+                        if (window.buy_the_way_api?.showToast) {
+                            window.buy_the_way_api.showToast(`导入配置失败: ${error.message}`, 'error');
+                        }
+                    } finally {
+                        // Reset file input to allow importing the same file again
+                        importAllInput.value = '';
+                    }
+                };
+                reader.onerror = (error) => {
+                     console.error('[BuyTheWay] Error reading import file:', error);
+                     if (window.buy_the_way_api?.showToast) {
+                         window.buy_the_way_api.showToast(`读取导入文件失败: ${error.message}`, 'error');
+                     }
+                     importAllInput.value = ''; // Reset file input
+                };
+                reader.readAsText(file);
+            });
+        }
+        // --- 导入/导出所有配置结束 ---
+
         // 为所有输入元素添加自动保存监听器
         const inputs = view.querySelectorAll('input, textarea, select');
         inputs.forEach(input => {

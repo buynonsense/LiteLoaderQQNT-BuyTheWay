@@ -122,6 +122,30 @@
   <body>
     <h2>BuyTheWay 插件设置</h2>
 
+    <!-- 新增：导入导出所有配置 -->
+    <div class="setting-group">
+      <h3>配置管理</h3>
+      <setting-list data-direction="row">
+        <setting-item>
+          <setting-button data-type="primary" id="exportAllSettingsButton"
+            >导出所有配置</setting-button
+          >
+        </setting-item>
+        <setting-item>
+          <setting-button data-type="secondary" id="importAllSettingsButton"
+            >导入所有配置</setting-button
+          >
+          <input
+            type="file"
+            id="importAllSettingsInput"
+            hidden
+            accept=".json"
+          />
+        </setting-item>
+      </setting-list>
+    </div>
+    <!-- 导入导出所有配置结束 -->
+
     <div class="setting-group">
       <h3>总开关</h3>
       <label>
