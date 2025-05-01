@@ -122,6 +122,14 @@ function formatMessage(template, sender, content, time) {
     return { msgBody, emailHtmlBody };
 }
 
+// --- 新增：提取数字的辅助函数 ---
+const extractNumbers = (str) => {
+    if (typeof str !== 'string') return null;
+    const match = str.match(/\d+/); // Find the first sequence of digits
+    return match ? match[0] : null; // Return the first match or null
+
+};
+
 // 处理接收到的消息
 async function handleMessage(sender, content, time) {
     try {
@@ -140,14 +148,23 @@ async function handleMessage(sender, content, time) {
             return;
         }
 
-        // 检查是否需要监控此消息来源
-        const monitoredGroups = config.monitoredGroups || [];
-        console.log(`[BuyTheWay] 监控列表: ${JSON.stringify(monitoredGroups)}`);
-        if (!monitoredGroups.includes(sender)) {
-            console.log(`[BuyTheWay] 消息来源 ${sender} 不在监控列表中`);
+        // --- 新增：检查总开关 ---
+        if (!config.pluginEnabled) {
+            // console.log('[BuyTheWay] Plugin is disabled via config. Skipping message processing in renderer.'); // 可以取消注释以进行调试
+            return; // 如果插件在配置中被禁用，则直接返回
+        }
+        // --- 总开关检查结束 ---
+
+        // 检查是否需要监控此消息来源 (使用 Raw 数据并提取数字)
+        const monitoredGroupsRaw = config.monitoredGroupsRaw || config.monitoredGroups || []; // Fallback
+        const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean); // 现在 extractNumbers 可用
+
+        console.log(`[BuyTheWay] 监控列表 (提取后): ${JSON.stringify(monitoredGroupIds)}`);
+        if (!monitoredGroupIds.includes(sender)) {
+            console.log(`[BuyTheWay] 消息来源 ${sender} 不在监控列表 [${monitoredGroupIds.join(', ')}] 中`);
             return;
         }
-        console.log(`[BuyTheWay] 消息来源 ${sender} 在监控列表中`);
+        console.log(`[BuyTheWay] 消息来源 ${sender} 在监控列表 [${monitoredGroupIds.join(', ')}] 中`);
 
         // 关键词匹配 - 修复逻辑
         const keywords = config.targetProducts || [];
@@ -191,58 +208,75 @@ async function handleMessage(sender, content, time) {
             // 使用新函数格式化消息
             const { msgBody, emailHtmlBody } = formatMessage(template, sender, content, time);
 
-            // 转发到QQ好友
-            if (config.forwardConfig?.toUsers?.enabled &&
-                config.forwardConfig?.toUsers?.users?.length > 0) {
+            // 转发到QQ好友 (修改：使用 usersRaw 并提取数字)
+            const forwardToUsersConfig = config.forwardConfig?.toUsers;
+            if (forwardToUsersConfig?.enabled) {
+                const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback
+                const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean); // Extract IDs
 
-                const users = config.forwardConfig.toUsers.users;
-                console.log(`[BuyTheWay] 准备转发到 ${users.length} 个QQ好友`);
-
-                for (const user of users) {
-                    try {
-                        const friend = window.euphony.Friend.fromUin(user);
-                        if (friend) {
-                            const msgObj = new window.euphony.PlainText(msgBody);
-                            friend.sendMessage(msgObj);
-                            console.log(`[BuyTheWay] 成功转发到好友 ${user}`);
-                        } else {
-                            console.warn(`[BuyTheWay] 未找到好友 ${user}，无法转发`);
+                if (userIdsToForward.length > 0) {
+                    console.log(`[BuyTheWay] 准备转发到 ${userIdsToForward.length} 个QQ好友:`, userIdsToForward);
+                    for (const userId of userIdsToForward) { // Iterate over extracted IDs
+                        try {
+                            const friend = window.euphony.Friend.fromUin(userId);
+                            if (friend) {
+                                const msgObj = new window.euphony.PlainText(msgBody);
+                                friend.sendMessage(msgObj);
+                                console.log(`[BuyTheWay] 成功转发到好友 ${userId}`);
+                            } else {
+                                console.warn(`[BuyTheWay] 未找到好友 ${userId}，无法转发`);
+                            }
+                        } catch (err) {
+                            // Find the original line for logging context
+                            const originalLine = usersRaw.find(line => extractNumbers(line) === userId) || userId;
+                            console.error(`[BuyTheWay] 转发到好友 ${originalLine} (ID: ${userId}) 失败:`, err);
                         }
-                    } catch (err) {
-                        console.error(`[BuyTheWay] 转发到好友 ${user} 失败:`, err);
                     }
+                } else {
+                    console.log('[BuyTheWay] QQ用户转发已启用，但未找到有效的用户ID');
                 }
+            } else {
+                console.log('[BuyTheWay] QQ用户转发未启用');
             }
 
-            // 转发到QQ群
-            if (config.forwardConfig?.toGroups?.enabled &&
-                config.forwardConfig?.toGroups?.groups?.length > 0) {
 
-                const groups = config.forwardConfig.toGroups.groups;
-                console.log(`[BuyTheWay] 准备转发到 ${groups.length} 个QQ群`);
+            // 转发到QQ群 (修改：使用 groupsRaw 并提取数字)
+            const forwardToGroupsConfig = config.forwardConfig?.toGroups;
+            if (forwardToGroupsConfig?.enabled) {
+                const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []; // Fallback
+                const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs
 
-                for (const group of groups) {
-                    try {
-                        const groupObj = window.euphony.Group.make(group);
-                        if (groupObj) {
-                            const msgObj = new window.euphony.PlainText(msgBody);
-                            groupObj.sendMessage(msgObj);
-                            console.log(`[BuyTheWay] 成功转发到群 ${group}`);
-                        } else {
-                            console.warn(`[BuyTheWay] 未找到群 ${group}，无法转发`);
+                if (groupIdsToForward.length > 0) {
+                    console.log(`[BuyTheWay] 准备转发到 ${groupIdsToForward.length} 个QQ群:`, groupIdsToForward);
+                    for (const groupId of groupIdsToForward) { // Iterate over extracted IDs
+                        try {
+                            const groupObj = window.euphony.Group.make(groupId);
+                            if (groupObj) {
+                                const msgObj = new window.euphony.PlainText(msgBody);
+                                groupObj.sendMessage(msgObj);
+                                console.log(`[BuyTheWay] 成功转发到群 ${groupId}`);
+                            } else {
+                                console.warn(`[BuyTheWay] 未找到群 ${groupId}，无法转发`);
+                            }
+                        } catch (err) {
+                            // Find the original line for logging context
+                            const originalLine = groupsRaw.find(line => extractNumbers(line) === groupId) || groupId;
+                            console.error(`[BuyTheWay] 转发到群 ${originalLine} (ID: ${groupId}) 失败:`, err);
                         }
-                    } catch (err) {
-                        console.error(`[BuyTheWay] 转发到群 ${group} 失败:`, err);
                     }
+                } else {
+                    console.log('[BuyTheWay] QQ群转发已启用，但未找到有效的群ID');
                 }
+            } else {
+                console.log('[BuyTheWay] QQ群转发未启用');
             }
 
-            // 转发到Email
+
+            // 转发到Email (这部分逻辑之前似乎没问题，保持不变)
             if (config.emailConfig && config.emailConfig.enabled) {
                 console.log('[BuyTheWay] 准备通过邮件转发消息');
-
                 const emailConfig = config.emailConfig;
-                const subject = `BuyTheWay 消息匹配: ${sender}`;
+                const subject = `BuyTheWay 消息匹配: ${sender}`; // Use original sender ID here
 
                 if (!window.buy_the_way_api || !window.buy_the_way_api.sendEmail) {
                     console.error('[BuyTheWay] 邮件发送接口不可用');
@@ -253,7 +287,7 @@ async function handleMessage(sender, content, time) {
                     const result = await window.buy_the_way_api.sendEmail(
                         emailConfig,
                         subject,
-                        emailHtmlBody
+                        emailHtmlBody // Use the formatted HTML body
                     );
 
                     if (result.success) {
@@ -264,6 +298,8 @@ async function handleMessage(sender, content, time) {
                 } catch (err) {
                     console.error('[BuyTheWay] 发送邮件时出错:', err);
                 }
+            } else {
+                console.log('[BuyTheWay] 邮件转发未启用');
             }
         }
 
@@ -858,7 +894,8 @@ function stopObserver() {
 // --- 仅处理关键词、邮件和监控群设置 ---
 function getSettingsFromForm(view) {
     return {
-        targetProducts: view.querySelector('#targetProducts').value.split('\n').map(s => s.trim()).filter(Boolean),
+        pluginEnabled: view.querySelector('#pluginEnabled').checked,
+        targetProducts: view.querySelector('#targetProducts').value.split('\n').map(s => s.trim()).filter(Boolean), // Keywords still need filtering
         emailConfig: {
             enabled: view.querySelector('#emailEnabled').checked,
             host: view.querySelector('#emailHost').value.trim(),
@@ -870,25 +907,67 @@ function getSettingsFromForm(view) {
             },
             to: view.querySelector('#emailTo').value.trim()
         },
-        monitoredGroups: view.querySelector('#monitoredGroups').value.split('\n').map(s => s.trim()).filter(Boolean),
-        // 添加转发配置
+        // 保存原始文本，按行分割
+        monitoredGroupsRaw: view.querySelector('#monitoredGroups').value.split('\n'),
         forwardConfig: {
             toUsers: {
                 enabled: view.querySelector('#forwardToUsersEnabled')?.checked || false,
-                users: view.querySelector('#forwardToUsers')?.value.split('\n').map(s => s.trim()).filter(Boolean) || []
+                // 保存原始文本
+                usersRaw: view.querySelector('#forwardToUsers')?.value.split('\n') || []
             },
             toGroups: {
                 enabled: view.querySelector('#forwardToGroupsEnabled')?.checked || false,
-                groups: view.querySelector('#forwardToGroups')?.value.split('\n').map(s => s.trim()).filter(Boolean) || []
+                // 保存原始文本
+                groupsRaw: view.querySelector('#forwardToGroups')?.value.split('\n') || []
             }
         },
-        // 添加消息格式模板设置
-        messageFormatTemplate: view.querySelector('#messageFormatTemplate')?.value || 'default' // 获取下拉列表的值
+        messageFormatTemplate: view.querySelector('#messageFormatTemplate')?.value || 'default'
     };
+}
+
+// --- 辅助函数：防抖 ---
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func.apply(this, args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// --- 自动保存设置 ---
+async function autoSaveSettings(view) {
+    console.log('[BuyTheWay] Settings changed, triggering auto-save...');
+    const newConfig = getSettingsFromForm(view);
+    console.log('[BuyTheWay] 正在自动保存设置:', newConfig);
+    if (window.buy_the_way_api && window.buy_the_way_api.saveConfig) {
+        try {
+            const result = await window.buy_the_way_api.saveConfig(newConfig);
+            if (result.success) {
+                console.log('[BuyTheWay] 设置自动保存成功。');
+            } else {
+                console.error('[BuyTheWay] 自动保存配置失败:', result.error);
+                if (window.buy_the_way_api.showToast) {
+                    window.buy_the_way_api.showToast(`自动保存配置失败: ${result.error}`, 'error');
+                }
+            }
+        } catch (error) {
+            console.error('[BuyTheWay] 调用 saveConfig 时出错:', error);
+            if (window.buy_the_way_api.showToast) {
+                window.buy_the_way_api.showToast('自动保存配置时出错', 'error');
+            }
+        }
+    } else {
+        console.error('[BuyTheWay] API saveConfig 未找到!');
+    }
 }
 
 // --- 填充关键词、邮件和监控群设置 ---
 function setSettingsToForm(view, config = {}) {
+    view.querySelector('#pluginEnabled').checked = config.pluginEnabled === undefined ? true : config.pluginEnabled;
     view.querySelector('#targetProducts').value = (config.targetProducts || []).join('\n');
     const emailConfig = config.emailConfig || {};
     view.querySelector('#emailEnabled').checked = emailConfig.enabled || false;
@@ -898,32 +977,32 @@ function setSettingsToForm(view, config = {}) {
     view.querySelector('#emailUser').value = emailConfig.auth?.user || '';
     view.querySelector('#emailPass').value = emailConfig.auth?.pass || '';
     view.querySelector('#emailTo').value = emailConfig.to || '';
-    view.querySelector('#monitoredGroups').value = (config.monitoredGroups || []).join('\n');
+    // 填充监控群组 (使用原始文本)
+    // 使用 config.monitoredGroupsRaw，如果不存在则 fallback 到旧的 config.monitoredGroups 或空数组
+    view.querySelector('#monitoredGroups').value = (config.monitoredGroupsRaw || config.monitoredGroups || []).join('\n');
 
     // 设置转发配置
     const forwardConfig = config.forwardConfig || {};
-
-    // 转发到QQ配置
     const toUsers = forwardConfig.toUsers || {};
     if (view.querySelector('#forwardToUsersEnabled')) {
         view.querySelector('#forwardToUsersEnabled').checked = toUsers.enabled || false;
     }
     if (view.querySelector('#forwardToUsers')) {
-        view.querySelector('#forwardToUsers').value = (toUsers.users || []).join('\n');
+        // 填充转发用户 (使用原始文本)
+        view.querySelector('#forwardToUsers').value = (toUsers.usersRaw || toUsers.users || []).join('\n');
     }
-
-    // 转发到群组配置
     const toGroups = forwardConfig.toGroups || {};
     if (view.querySelector('#forwardToGroupsEnabled')) {
         view.querySelector('#forwardToGroupsEnabled').checked = toGroups.enabled || false;
     }
     if (view.querySelector('#forwardToGroups')) {
-        view.querySelector('#forwardToGroups').value = (toGroups.groups || []).join('\n');
+        // 填充转发群组 (使用原始文本)
+        view.querySelector('#forwardToGroups').value = (toGroups.groupsRaw || toGroups.groups || []).join('\n');
     }
 
     // 设置消息格式模板
     if (view.querySelector('#messageFormatTemplate')) {
-        view.querySelector('#messageFormatTemplate').value = config.messageFormatTemplate || 'default'; // 设置下拉列表的值
+        view.querySelector('#messageFormatTemplate').value = config.messageFormatTemplate || 'default';
     }
 
     // 控制可见性
@@ -989,6 +1068,9 @@ function toggleForwardSectionVisibility(view) {
 export async function onSettingWindowCreated(view) {
     console.log('[BuyTheWay] Settings window created.');
 
+    // 创建防抖版的自动保存函数
+    const debouncedAutoSave = debounce(() => autoSaveSettings(view), 500); // 500ms 延迟
+
     // 2. 加载 HTML 内容
     try {
         // 使用 PLUGIN_PATH 别名加载 settings.html
@@ -1029,43 +1111,18 @@ export async function onSettingWindowCreated(view) {
 
         // 4. 添加事件监听器 (确保在 DOM 更新后执行)
 
-        // 邮件启用复选框
+        // 为所有输入元素添加自动保存监听器
+        const inputs = view.querySelectorAll('input, textarea, select');
+        inputs.forEach(input => {
+            const eventType = (input.type === 'checkbox' || input.type === 'radio' || input.tagName === 'SELECT') ? 'change' : 'input';
+            input.addEventListener(eventType, debouncedAutoSave);
+        });
+
+        // 邮件启用复选框 (已包含在上面的 inputs 监听中，但保留 toggleEmailConfigVisibility 的逻辑)
         const emailEnabledCheckbox = view.querySelector('#emailEnabled');
         if (emailEnabledCheckbox) {
             emailEnabledCheckbox.addEventListener('change', (event) => {
                 toggleEmailConfigVisibility(view, event.target.checked);
-            });
-        }
-
-        // 保存按钮
-        const saveButton = view.querySelector('#saveSettingsButton');
-        if (saveButton) {
-            saveButton.addEventListener('click', async () => {
-                const newConfig = getSettingsFromForm(view);
-                console.log('[BuyTheWay] 正在保存设置:', newConfig);
-                if (window.buy_the_way_api && window.buy_the_way_api.saveConfig) {
-                    try {
-                        const result = await window.buy_the_way_api.saveConfig(newConfig);
-                        if (result.success) {
-                            console.log('[BuyTheWay] 设置保存成功。');
-                            if (window.buy_the_way_api.showToast) {
-                                window.buy_the_way_api.showToast('设置已保存', 'success');
-                            }
-                        } else {
-                            console.error('[BuyTheWay] 保存配置失败:', result.error);
-                            if (window.buy_the_way_api.showToast) {
-                                window.buy_the_way_api.showToast(`保存配置失败: ${result.error}`, 'error');
-                            }
-                        }
-                    } catch (error) {
-                        console.error('[BuyTheWay] 调用 saveConfig 时出错:', error);
-                        if (window.buy_the_way_api.showToast) {
-                            window.buy_the_way_api.showToast('保存配置时出错', 'error');
-                        }
-                    }
-                } else {
-                    console.error('[BuyTheWay] API saveConfig 未找到!');
-                }
             });
         }
 
@@ -1084,6 +1141,7 @@ export async function onSettingWindowCreated(view) {
             const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader(); reader.onload = ev => {
                 view.querySelector('#targetProducts').value = ev.target.result.trim();
+                debouncedAutoSave(); // 导入后触发自动保存
             }; reader.readAsText(file);
             importKeywordsInput.value = '';
         });
@@ -1102,6 +1160,7 @@ export async function onSettingWindowCreated(view) {
             const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader(); reader.onload = ev => {
                 view.querySelector('#monitoredGroups').value = ev.target.result.trim();
+                debouncedAutoSave(); // 导入后触发自动保存
             }; reader.readAsText(file);
             importGroupsInput.value = '';
         });
@@ -1124,6 +1183,7 @@ export async function onSettingWindowCreated(view) {
                 const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader(); reader.onload = ev => {
                     view.querySelector('#forwardToUsers').value = ev.target.result.trim();
+                    debouncedAutoSave(); // 导入后触发自动保存
                 }; reader.readAsText(file);
                 importForwardUsersInput.value = '';
             });
@@ -1147,22 +1207,12 @@ export async function onSettingWindowCreated(view) {
                 const file = e.target.files[0]; if (!file) return;
                 const reader = new FileReader(); reader.onload = ev => {
                     view.querySelector('#forwardToGroups').value = ev.target.result.trim();
+                    debouncedAutoSave(); // 导入后触发自动保存
                 }; reader.readAsText(file);
                 importForwardGroupsInput.value = '';
             });
         }
 
-        // 测试关键词按钮
-        const testKeywordsBtn = view.querySelector('#testKeywordsButton');
-        if (testKeywordsBtn) {
-            testKeywordsBtn.addEventListener('click', () => {
-                const { targetProducts } = getSettingsFromForm(view);
-                const list = targetProducts.join(', ') || '无关键词';
-                if (window.buy_the_way_api.showToast) {
-                    window.buy_the_way_api.showToast(`当前关键词：${list}`, 'info');
-                }
-            });
-        }
         // 测试发送邮件按钮
         const testEmailBtn = view.querySelector('#testEmailButton');
         if (testEmailBtn) {

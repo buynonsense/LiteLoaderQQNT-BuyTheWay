@@ -123,6 +123,14 @@
     <h2>BuyTheWay 插件设置</h2>
 
     <div class="setting-group">
+      <h3>总开关</h3>
+      <label>
+        <input type="checkbox" id="pluginEnabled" />
+        <span class="inline-label">启用插件</span>
+      </label>
+    </div>
+
+    <div class="setting-group">
       <h3>通用设置</h3>
       <label for="targetProducts">关注的商品关键词 (每行一个):</label>
       <textarea id="targetProducts" rows="3"></textarea>
@@ -287,12 +295,6 @@
       </div>
     </div>
 
-    <setting-button data-type="primary" id="saveSettingsButton"
-      >保存设置</setting-button
-    >
-    <setting-button data-type="secondary" id="testKeywordsButton"
-      >测试关键词</setting-button
-    >
     <setting-button data-type="secondary" id="testEmailButton"
       >测试发送邮件</setting-button
     >

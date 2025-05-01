@@ -5,8 +5,9 @@ const fs = require("fs");
 
 // --- 默认设置及更新函数 ---
 const defaultSettings = {
+    pluginEnabled: true,
     targetProducts: [],
-    monitoredGroups: [],
+    monitoredGroupsRaw: [], // 使用 Raw 后缀存储原始文本行
     emailConfig: {
         enabled: false,
         host: '',
@@ -21,14 +22,14 @@ const defaultSettings = {
     forwardConfig: {
         toUsers: {
             enabled: false,
-            users: []  // 要转发到的QQ号列表
+            usersRaw: [] // 使用 Raw 后缀
         },
         toGroups: {
             enabled: false,
-            groups: [] // 要转发到的群号列表
+            groupsRaw: [] // 使用 Raw 后缀
         }
     },
-    messageFormatTemplate: 'default' // 添加消息格式模板默认值
+    messageFormatTemplate: 'default'
 };
 
 /**
@@ -56,6 +57,13 @@ function updateSettingsWithDefaults(existingSettings, defaults) {
     }
     return updated;
 }
+
+// Helper function to extract numbers from a string
+const extractNumbers = (str) => {
+    if (typeof str !== 'string') return null;
+    const match = str.match(/\d+/); // Find the first sequence of digits
+    return match ? match[0] : null; // Return the first match or null
+};
 
 // --- 新增：格式化消息函数 (与 renderer.js 中的类似) ---
 function formatMessage(template, sender, content, time) {
@@ -181,11 +189,13 @@ function loadOrInitSettings() {
  */
 async function saveSettingsToFile(settingsToSave) {
     try {
+        // 增加日志：记录要保存的 targetProducts
+        console.log("[BuyTheWay] Attempting to save settings. targetProducts:", JSON.stringify(settingsToSave.targetProducts));
         // 更新内存中的设置缓存
         currentSettings = settingsToSave;
         // 写入文件
         fs.writeFileSync(settingsPath, JSON.stringify(settingsToSave, null, 4), 'utf-8');
-        console.log("[BuyTheWay] Settings saved to file:", settingsPath);
+        console.log("[BuyTheWay] Settings saved successfully to file:", settingsPath); // 修改日志消息
         return { success: true };
     } catch (error) {
         console.error("[BuyTheWay] Error saving settings to file:", error);
@@ -321,6 +331,13 @@ function onLoad(plugin) {
 }
 
 async function handleReceivedMessage(message) {
+    // 新增：检查总开关
+    if (!currentSettings || !currentSettings.pluginEnabled) {
+        return; // 如果插件被禁用，则不处理任何消息
+    }
+
+    // 增加日志：记录当前处理消息时使用的 targetProducts
+    console.log('[BuyTheWay] handleReceivedMessage: Using targetProducts:', JSON.stringify(currentSettings?.targetProducts || 'Settings not loaded'));
     console.log('[BuyTheWay] 收到消息，开始处理:', JSON.stringify(message).substring(0, 100) + '...');
 
     if (!currentSettings) {
@@ -328,17 +345,19 @@ async function handleReceivedMessage(message) {
         return;
     }
 
-    // 检查是否在监控群组中
-    const monitoredGroups = currentSettings.monitoredGroups || [];
-    const senderIdentifier = message.chatType === 'group' ? message.peerUid : message.senderUid; // 使用群号或好友Uin作为标识
-    const senderName = message.chatType === 'group' ? message.peerName : message.senderName; // 用于日志和格式化
-    const messageTime = new Date(message.msgTime * 1000).toLocaleString(); // 格式化时间
+    // 检查是否在监控群组中 (从 Raw 提取数字)
+    const monitoredGroupsRaw = currentSettings.monitoredGroupsRaw || currentSettings.monitoredGroups || []; // Fallback for older configs
+    const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs on the fly
+    const senderIdentifier = message.chatType === 'group' ? message.peerUid : message.senderUid;
+    const senderName = message.chatType === 'group' ? message.peerName : message.senderName;
+    const messageTime = new Date(message.msgTime * 1000).toLocaleString();
 
-    if (!monitoredGroups.includes(senderIdentifier)) {
-        console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 不在监控列表中，跳过处理`);
+    // 使用提取出的 monitoredGroupIds 进行判断
+    if (!monitoredGroupIds.includes(senderIdentifier)) {
+        console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 不在监控列表 [${monitoredGroupIds.join(', ')}] 中，跳过处理`);
         return;
     }
-    console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 在监控列表中`);
+    console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 在监控列表 [${monitoredGroupIds.join(', ')}] 中`);
 
     // 提取文本内容
     let content = '';
@@ -429,66 +448,80 @@ async function handleReceivedMessage(message) {
             console.log('[BuyTheWay] 邮件转发未启用或配置不完整');
         }
 
-        // 打印当前转发配置状态
+        // 打印当前转发配置状态 (显示原始行数)
         console.log('[BuyTheWay] 当前转发配置:', JSON.stringify({
             emailEnabled: currentSettings.emailConfig?.enabled || false,
             toUsers: {
                 enabled: currentSettings.forwardConfig?.toUsers?.enabled || false,
-                count: currentSettings.forwardConfig?.toUsers?.users?.length || 0
+                // 显示原始行数，或旧配置的用户数
+                count: (currentSettings.forwardConfig?.toUsers?.usersRaw || currentSettings.forwardConfig?.toUsers?.users || []).length
             },
             toGroups: {
                 enabled: currentSettings.forwardConfig?.toGroups?.enabled || false,
-                count: currentSettings.forwardConfig?.toGroups?.groups?.length || 0
+                // 显示原始行数，或旧配置的群组数
+                count: (currentSettings.forwardConfig?.toGroups?.groupsRaw || currentSettings.forwardConfig?.toGroups?.groups || []).length
             }
         }));
 
-        // 2. 转发到用户
-        const forwardToUsers = currentSettings.forwardConfig?.toUsers;
-        if (forwardToUsers && forwardToUsers.enabled && forwardToUsers.users && forwardToUsers.users.length > 0) {
-            console.log(`[BuyTheWay] 准备转发到 ${forwardToUsers.users.length} 个QQ用户:`, forwardToUsers.users);
-            let windowsCount = 0;
-            BrowserWindow.getAllWindows().forEach(window => {
-                try {
-                    window.webContents.send("buy_the_way.forwardToUsers", {
-                        users: forwardToUsers.users,
-                        content: msgBody // 使用格式化后的消息正文
-                    });
-                    windowsCount++;
-                } catch (sendErr) {
-                    console.error('[BuyTheWay] 向窗口发送QQ转发消息失败:', sendErr);
-                }
-            });
-            console.log(`[BuyTheWay] 已向 ${windowsCount} 个窗口发送QQ转发请求`);
+        // 2. 转发到用户 (从 Raw 提取数字)
+        const forwardToUsersConfig = currentSettings.forwardConfig?.toUsers;
+        if (forwardToUsersConfig && forwardToUsersConfig.enabled) {
+            const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback
+            const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+            if (userIdsToForward.length > 0) {
+                console.log(`[BuyTheWay] 准备转发到 ${userIdsToForward.length} 个QQ用户:`, userIdsToForward);
+                let windowsCount = 0;
+                BrowserWindow.getAllWindows().forEach(window => {
+                    try {
+                        window.webContents.send("buy_the_way.forwardToUsers", {
+                            users: userIdsToForward, // 发送提取后的 ID 列表
+                            content: msgBody
+                        });
+                        windowsCount++;
+                    } catch (sendErr) {
+                        console.error('[BuyTheWay] 向窗口发送QQ转发消息失败:', sendErr);
+                    }
+                });
+                console.log(`[BuyTheWay] 已向 ${windowsCount} 个窗口发送QQ转发请求`);
+            } else {
+                console.log('[BuyTheWay] QQ用户转发已启用，但未找到有效的用户ID');
+            }
         } else {
             console.log('[BuyTheWay] QQ用户转发未启用或目标用户列表为空');
         }
 
-        // 3. 转发到群
-        const forwardToGroups = currentSettings.forwardConfig?.toGroups;
-        if (forwardToGroups && forwardToGroups.enabled && forwardToGroups.groups && forwardToGroups.groups.length > 0) {
-            console.log(`[BuyTheWay] 准备转发到 ${forwardToGroups.groups.length} 个QQ群:`, forwardToGroups.groups);
-            let windowsCount = 0;
-            BrowserWindow.getAllWindows().forEach(window => {
-                try {
-                    window.webContents.send("buy_the_way.forwardToGroups", {
-                        groups: forwardToGroups.groups,
-                        content: msgBody // 使用格式化后的消息正文
-                    });
-                    windowsCount++;
-                } catch (sendErr) {
-                    console.error('[BuyTheWay] 向窗口发送群转发消息失败:', sendErr);
-                }
-            });
-            console.log(`[BuyTheWay] 已向 ${windowsCount} 个窗口发送群转发请求`);
+        // 3. 转发到群 (从 Raw 提取数字)
+        const forwardToGroupsConfig = currentSettings.forwardConfig?.toGroups;
+        if (forwardToGroupsConfig && forwardToGroupsConfig.enabled) {
+            const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []; // Fallback
+            const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+            if (groupIdsToForward.length > 0) {
+                console.log(`[BuyTheWay] 准备转发到 ${groupIdsToForward.length} 个QQ群:`, groupIdsToForward);
+                let windowsCount = 0;
+                BrowserWindow.getAllWindows().forEach(window => {
+                    try {
+                        window.webContents.send("buy_the_way.forwardToGroups", {
+                            groups: groupIdsToForward, // 发送提取后的 ID 列表
+                            content: msgBody
+                        });
+                        windowsCount++;
+                    } catch (sendErr) {
+                        console.error('[BuyTheWay] 向窗口发送群转发消息失败:', sendErr);
+                    }
+                });
+                console.log(`[BuyTheWay] 已向 ${windowsCount} 个窗口发送群转发请求`);
+            } else {
+                console.log('[BuyTheWay] QQ群转发已启用，但未找到有效的群ID');
+            }
         } else {
             console.log('[BuyTheWay] QQ群转发未启用或目标群列表为空');
         }
 
         // 本地通知(如果没有任何转发或配置不正确时)
         if ((!currentSettings.emailConfig || !currentSettings.emailConfig.enabled) &&
-            (!forwardToUsers || !forwardToUsers.enabled || !forwardToUsers.users.length) &&
-            (!forwardToGroups || !forwardToGroups.enabled || !forwardToGroups.groups.length)) {
-            console.log('[BuyTheWay] 所有转发方式均未启用，显示本地通知');
+            (!forwardToUsersConfig || !forwardToUsersConfig.enabled || (forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []).map(extractNumbers).filter(Boolean).length === 0) && // Check extracted IDs
+            (!forwardToGroupsConfig || !forwardToGroupsConfig.enabled || (forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []).map(extractNumbers).filter(Boolean).length === 0)) { // Check extracted IDs
+            console.log('[BuyTheWay] 所有转发方式均未启用或无有效目标，显示本地通知');
             if (Notification.isSupported()) {
                 // 使用格式化后的 msgBody 显示通知
                 new Notification({ title: `BuyTheWay 消息匹配: ${senderName}`, body: msgBody }).show();
