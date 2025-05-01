@@ -59,6 +59,69 @@ function startEuphonyMessageListener() {
     }
 }
 
+// --- 新增：格式化消息函数 ---
+function formatMessage(template, sender, content, time) {
+    let msgBody = '';
+    let emailHtmlBody = '';
+
+    // Basic HTML escaping for email body content
+    const escapeHtml = (unsafe) => {
+        if (typeof unsafe !== 'string') return unsafe; // Handle non-string input
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    };
+    const escapedContent = escapeHtml(content);
+    const escapedSender = escapeHtml(sender);
+    const escapedTime = escapeHtml(time);
+
+    switch (template) {
+        case 'emoji':
+            msgBody = `🔢 来源：${sender}\n📝 内容：${content}\n⏰ 时间：${time}`;
+            emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p><pre>${escapedContent}</pre><p>⏰ 时间：${escapedTime}</p>`;
+            break;
+        case 'brackets':
+            msgBody = `【来源】『${sender}』\n【内容】「${content}」\n【时间】『${time}』`;
+            emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${escapedContent}」</p><p>【时间】『${escapedTime}』</p>`;
+            break;
+        case 'symbols':
+            msgBody = `✦ 来源：${sender}\n✧ 内容：${content}\n✦ 时间：${time}`;
+            emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p><pre>${escapedContent}</pre><p>✦ 时间：${escapedTime}</p>`;
+            break;
+        case 'markdown_lines':
+            msgBody = `---\n### 来源\n${sender}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
+            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3><pre>${escapedContent}</pre><h3>时间</h3><p>${escapedTime}</p><hr>`;
+            break;
+        case 'markdown_bold':
+            msgBody = `**来源**：${sender}\n**内容**：${content}\n**时间**：${time}`;
+            emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p><pre>${escapedContent}</pre><p><b>时间</b>：${escapedTime}</p>`;
+            break;
+        case 'markdown_table':
+            // Plain text table might not align perfectly
+            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
+            emailHtmlBody = `<table border="1" style="border-collapse: collapse; padding: 5px;">
+                             <thead><tr><th>项目</th><th>内容</th></tr></thead>
+                             <tbody>
+                               <tr><td>来源</td><td>${escapedSender}</td></tr>
+                               <tr><td>内容</td><td><pre style="margin:0; padding:0;">${escapedContent}</pre></td></tr>
+                               <tr><td>时间</td><td>${escapedTime}</td></tr>
+                             </tbody>
+                           </table>`;
+            break;
+        case 'default':
+        default:
+            // 默认格式，时间放在底部
+            msgBody = `来源: ${sender}\n内容: ${content}\n时间: ${time}`;
+            emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p>内容：</p><pre>${escapedContent}</pre><p><b>时间</b>: ${escapedTime}</p>`;
+            break;
+    }
+
+    return { msgBody, emailHtmlBody };
+}
+
 // 处理接收到的消息
 async function handleMessage(sender, content, time) {
     try {
@@ -121,13 +184,12 @@ async function handleMessage(sender, content, time) {
 
         // 如果需要转发 (matched 为 true)
         if (matched) {
-            // 准备消息内容
-            const matchInfo = `来源: ${sender}`;
-            const timeInfo = `时间: ${time}`;
-            const contentInfo = `内容: ${content}`;
+            // 获取选择的模板
+            const template = config.messageFormatTemplate || 'default';
+            console.log(`[BuyTheWay] 使用消息模板: ${template}`);
 
-            const msgBody = `${matchInfo}\n${timeInfo}\n${contentInfo}`;
-            const emailHtmlBody = `<p><b>${matchInfo}</b></p><p>${timeInfo}</p><p>内容：</p><pre>${content}</pre>`;
+            // 使用新函数格式化消息
+            const { msgBody, emailHtmlBody } = formatMessage(template, sender, content, time);
 
             // 转发到QQ好友
             if (config.forwardConfig?.toUsers?.enabled &&
@@ -819,7 +881,9 @@ function getSettingsFromForm(view) {
                 enabled: view.querySelector('#forwardToGroupsEnabled')?.checked || false,
                 groups: view.querySelector('#forwardToGroups')?.value.split('\n').map(s => s.trim()).filter(Boolean) || []
             }
-        }
+        },
+        // 添加消息格式模板设置
+        messageFormatTemplate: view.querySelector('#messageFormatTemplate')?.value || 'default' // 获取下拉列表的值
     };
 }
 
@@ -855,6 +919,11 @@ function setSettingsToForm(view, config = {}) {
     }
     if (view.querySelector('#forwardToGroups')) {
         view.querySelector('#forwardToGroups').value = (toGroups.groups || []).join('\n');
+    }
+
+    // 设置消息格式模板
+    if (view.querySelector('#messageFormatTemplate')) {
+        view.querySelector('#messageFormatTemplate').value = config.messageFormatTemplate || 'default'; // 设置下拉列表的值
     }
 
     // 控制可见性

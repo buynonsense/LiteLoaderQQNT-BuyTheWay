@@ -18,7 +18,6 @@ const defaultSettings = {
         },
         to: ''
     },
-    // 添加新的转发配置
     forwardConfig: {
         toUsers: {
             enabled: false,
@@ -28,7 +27,8 @@ const defaultSettings = {
             enabled: false,
             groups: [] // 要转发到的群号列表
         }
-    }
+    },
+    messageFormatTemplate: 'default' // 添加消息格式模板默认值
 };
 
 /**
@@ -55,6 +55,67 @@ function updateSettingsWithDefaults(existingSettings, defaults) {
         }
     }
     return updated;
+}
+
+// --- 新增：格式化消息函数 (与 renderer.js 中的类似) ---
+function formatMessage(template, sender, content, time) {
+    let msgBody = '';
+    let emailHtmlBody = '';
+
+    // Basic HTML escaping for email body content
+    const escapeHtml = (unsafe) => {
+        if (typeof unsafe !== 'string') return unsafe; // Handle non-string input
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    };
+    const escapedContent = escapeHtml(content);
+    const escapedSender = escapeHtml(sender);
+    const escapedTime = escapeHtml(time);
+
+    switch (template) {
+        case 'emoji':
+            msgBody = `🔢 来源：${sender}\n📝 内容：${content}\n⏰ 时间：${time}`;
+            emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p><pre>${escapedContent}</pre><p>⏰ 时间：${escapedTime}</p>`;
+            break;
+        case 'brackets':
+            msgBody = `【来源】『${sender}』\n【内容】「${content}」\n【时间】『${time}』`;
+            emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${escapedContent}」</p><p>【时间】『${escapedTime}』</p>`;
+            break;
+        case 'symbols':
+            msgBody = `✦ 来源：${sender}\n✧ 内容：${content}\n✦ 时间：${time}`;
+            emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p><pre>${escapedContent}</pre><p>✦ 时间：${escapedTime}</p>`;
+            break;
+        case 'markdown_lines':
+            msgBody = `---\n### 来源\n${sender}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
+            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3><pre>${escapedContent}</pre><h3>时间</h3><p>${escapedTime}</p><hr>`;
+            break;
+        case 'markdown_bold':
+            msgBody = `**来源**：${sender}\n**内容**：${content}\n**时间**：${time}`;
+            emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p><pre>${escapedContent}</pre><p><b>时间</b>：${escapedTime}</p>`;
+            break;
+        case 'markdown_table':
+            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
+            emailHtmlBody = `<table border="1" style="border-collapse: collapse; padding: 5px;">
+                             <thead><tr><th>项目</th><th>内容</th></tr></thead>
+                             <tbody>
+                               <tr><td>来源</td><td>${escapedSender}</td></tr>
+                               <tr><td>内容</td><td><pre style="margin:0; padding:0;">${escapedContent}</pre></td></tr>
+                               <tr><td>时间</td><td>${escapedTime}</td></tr>
+                             </tbody>
+                           </table>`;
+            break;
+        case 'default':
+        default:
+            msgBody = `来源: ${sender}\n内容: ${content}\n时间: ${time}`;
+            emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p>内容：</p><pre>${escapedContent}</pre><p><b>时间</b>: ${escapedTime}</p>`;
+            break;
+    }
+
+    return { msgBody, emailHtmlBody };
 }
 
 // --- 持久化配置文件初始化 (参考 GPT-Reply) ---
@@ -262,35 +323,54 @@ function onLoad(plugin) {
 async function handleReceivedMessage(message) {
     console.log('[BuyTheWay] 收到消息，开始处理:', JSON.stringify(message).substring(0, 100) + '...');
 
-    // 只基于关键字匹配发送通知
     if (!currentSettings) {
         console.warn('[BuyTheWay] 当前设置为空，无法处理消息');
         return;
     }
 
-    if (!currentSettings.monitoredGroups.includes(message.chatId)) {
-        console.log(`[BuyTheWay] 消息来源 ${message.chatId} 不在监控列表中，跳过处理`);
+    // 检查是否在监控群组中
+    const monitoredGroups = currentSettings.monitoredGroups || [];
+    const senderIdentifier = message.chatType === 'group' ? message.peerUid : message.senderUid; // 使用群号或好友Uin作为标识
+    const senderName = message.chatType === 'group' ? message.peerName : message.senderName; // 用于日志和格式化
+    const messageTime = new Date(message.msgTime * 1000).toLocaleString(); // 格式化时间
+
+    if (!monitoredGroups.includes(senderIdentifier)) {
+        console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 不在监控列表中，跳过处理`);
         return;
     }
+    console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 在监控列表中`);
 
-    const content = message.content;
-    if (!content || content === '（非文本消息）') {
-        console.log('[BuyTheWay] 消息内容为空或非文本消息，跳过处理');
-        return;
+    // 提取文本内容
+    let content = '';
+    if (message.elements && message.elements.length > 0) {
+        content = message.elements.map(el => {
+            if (el.elementType === 1 && el.textElement) { // 文本元素
+                return el.textElement.content;
+            }
+            // 可以根据需要添加对其他元素类型（如图片、@）的处理
+            return ''; // 其他元素暂时忽略
+        }).join('').trim();
     }
 
+    if (!content) {
+        console.log('[BuyTheWay] 消息内容为空或非纯文本，跳过处理');
+        return;
+    }
+    console.log(`[BuyTheWay] 提取到的文本内容: "${content}"`);
+
+    // 关键词匹配
     const keywords = currentSettings.targetProducts || [];
     console.log(`[BuyTheWay] 开始匹配关键词，共 ${keywords.length} 个关键词`);
-
+    let matched = false;
     if (keywords.length > 0) {
-        let matched = false;
-        for (const kw of keywords) {
-            if (content.toLowerCase().includes(kw.toLowerCase())) {
-                console.log(`[BuyTheWay] 匹配到关键词: "${kw}"`);
-                matched = true;
-                break;
-            }
-        }
+        const lowerContent = content.toLowerCase();
+        matched = keywords.some(keyword => {
+            const lowerKeyword = keyword.trim().toLowerCase();
+            if (!lowerKeyword) return false;
+            const isMatch = lowerContent.includes(lowerKeyword);
+            console.log(`[BuyTheWay] 检查消息 ("${lowerContent}") 是否包含关键词 ("${lowerKeyword}"): ${isMatch ? '是' : '否'}`);
+            return isMatch;
+        });
 
         if (!matched) {
             console.log('[BuyTheWay] 未匹配到任何关键词，跳过处理');
@@ -298,25 +378,24 @@ async function handleReceivedMessage(message) {
         }
     } else {
         console.log('[BuyTheWay] 无关键词配置，处理所有消息');
+        matched = true; // 没有关键词则默认匹配所有消息
     }
 
+    if (!matched) return; // 如果最终没有匹配，则退出
+
+    console.log('[BuyTheWay] 消息匹配成功，准备执行转发');
+
     try {
-        // 准备消息内容
-        const matchInfo = `来源: ${message.type} (${message.chatId})`;
-        const senderInfo = `发送者: ${message.sender}`;
-        const timeInfo = `时间: ${message.time}`;
-        const contentInfo = `内容: ${content}`;
-
-        const msgBody = `${matchInfo}\n${senderInfo}\n${timeInfo}\n${contentInfo}`;
-        const emailHtmlBody = `<p><b>${matchInfo}</b></p><p>${senderInfo}</p><p>${timeInfo}</p><p>内容：</p><pre>${content}</pre>`;
-
-        console.log('[BuyTheWay] 消息匹配成功，准备执行转发');
+        // 获取选择的模板并格式化消息
+        const template = currentSettings.messageFormatTemplate || 'default';
+        console.log(`[BuyTheWay] 使用消息模板: ${template}`);
+        const { msgBody, emailHtmlBody } = formatMessage(template, `${senderName} (${senderIdentifier})`, content, messageTime);
 
         // 1. 邮件转发
         if (currentSettings.emailConfig && currentSettings.emailConfig.enabled) {
             console.log('[BuyTheWay] 邮件转发已启用，准备发送邮件');
             try {
-                const subject = `BuyTheWay 消息匹配: ${message.chatId}`;
+                const subject = `BuyTheWay 消息匹配: ${senderName}`;
                 const emailConfig = currentSettings.emailConfig;
 
                 console.log(`[BuyTheWay] 邮件服务器配置: ${emailConfig.host}:${emailConfig.port}, 收件人: ${emailConfig.to}`);
@@ -335,7 +414,7 @@ async function handleReceivedMessage(message) {
                         from: `"BuyTheWay Bot" <${emailConfig.auth.user}>`,
                         to: emailConfig.to,
                         subject,
-                        html: emailHtmlBody
+                        html: emailHtmlBody // 使用格式化后的 HTML 邮件正文
                     });
 
                     console.log('[BuyTheWay] 邮件发送成功，ID:', mailResult.messageId);
@@ -367,13 +446,12 @@ async function handleReceivedMessage(message) {
         const forwardToUsers = currentSettings.forwardConfig?.toUsers;
         if (forwardToUsers && forwardToUsers.enabled && forwardToUsers.users && forwardToUsers.users.length > 0) {
             console.log(`[BuyTheWay] 准备转发到 ${forwardToUsers.users.length} 个QQ用户:`, forwardToUsers.users);
-            // 发出IPC消息，让渲染进程执行转发
             let windowsCount = 0;
             BrowserWindow.getAllWindows().forEach(window => {
                 try {
                     window.webContents.send("buy_the_way.forwardToUsers", {
                         users: forwardToUsers.users,
-                        content: msgBody
+                        content: msgBody // 使用格式化后的消息正文
                     });
                     windowsCount++;
                 } catch (sendErr) {
@@ -389,13 +467,12 @@ async function handleReceivedMessage(message) {
         const forwardToGroups = currentSettings.forwardConfig?.toGroups;
         if (forwardToGroups && forwardToGroups.enabled && forwardToGroups.groups && forwardToGroups.groups.length > 0) {
             console.log(`[BuyTheWay] 准备转发到 ${forwardToGroups.groups.length} 个QQ群:`, forwardToGroups.groups);
-            // 发出IPC消息，让渲染进程执行转发
             let windowsCount = 0;
             BrowserWindow.getAllWindows().forEach(window => {
                 try {
                     window.webContents.send("buy_the_way.forwardToGroups", {
                         groups: forwardToGroups.groups,
-                        content: msgBody
+                        content: msgBody // 使用格式化后的消息正文
                     });
                     windowsCount++;
                 } catch (sendErr) {
@@ -413,7 +490,8 @@ async function handleReceivedMessage(message) {
             (!forwardToGroups || !forwardToGroups.enabled || !forwardToGroups.groups.length)) {
             console.log('[BuyTheWay] 所有转发方式均未启用，显示本地通知');
             if (Notification.isSupported()) {
-                new Notification({ title: `BuyTheWay 消息匹配: ${message.chatId}`, body: content }).show();
+                // 使用格式化后的 msgBody 显示通知
+                new Notification({ title: `BuyTheWay 消息匹配: ${senderName}`, body: msgBody }).show();
             }
         }
     } catch (error) {

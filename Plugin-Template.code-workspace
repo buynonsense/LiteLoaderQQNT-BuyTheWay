@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../qqMessageSave"
+		},
+		{
+			"path": "../LiteLoaderQQNT-GPT-Reply"
+		},
+		{
+			"path": "../LiteLoaderQQNT-AutoForward"
+		}
+	],
+	"settings": {}
+}

@@ -167,6 +167,19 @@
           />
         </setting-item>
       </setting-list>
+
+      <!-- 新增：消息格式模板选择 -->
+      <label for="messageFormatTemplate">消息输出格式模板:</label>
+      <select id="messageFormatTemplate">
+        <option value="default">默认格式 (来源/内容/时间)</option>
+        <option value="emoji">Emoji 排版 (🔢/📝/⏰)</option>
+        <option value="brackets">【】『』「」排版</option>
+        <option value="symbols">带符号装饰 (✦/✧)</option>
+        <option value="markdown_lines">横线分割+标题 (Markdown)</option>
+        <option value="markdown_bold">Markdown 粗体</option>
+        <option value="markdown_table">Markdown 表格</option>
+      </select>
+      <!-- 消息格式模板选择结束 -->
     </div>
 
     <div class="setting-group">
