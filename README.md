@@ -1,6 +1,6 @@
 # LiteLoaderQQNT-BuyTheWay
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/buynonsense/LiteLoaderQQNT-BuyTheWay?style=flat-square)](https://github.com/Buynonsense/LiteLoaderQQNT-BuyTheWay/releases/latest)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/buynonsense/LiteLoaderQQNT-BuyTheWay?style=flat-square)](https://github.com/buynonsense/LiteLoaderQQNT-BuyTheWay/releases/latest)
 
 一个为 [LiteLoaderQQNT](https://github.com/LiteLoaderQQNT/LiteLoaderQQNT) 开发的插件，用于监控指定QQ群聊中的消息。当消息内容包含预设的关键词时，插件可以将该消息通过QQ或Email转发给指定的用户或群组。
 
