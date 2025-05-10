@@ -116,6 +116,7 @@ function startEuphonyMessageListener() {
 function formatMessage(template, sender, content, time, imagePaths = []) {
     let msgBody = '';
     let emailHtmlBody = '';
+    let plainTextForChain = ''; // 新增：用于 MessageChain 的纯文本
 
     const escapeHtml = (unsafe) => {
         if (typeof unsafe !== 'string') return unsafe;
@@ -130,72 +131,49 @@ function formatMessage(template, sender, content, time, imagePaths = []) {
     const escapedSender = escapeHtml(sender);
     const escapedTime = escapeHtml(time);
 
-    // 为 msgBody 添加图片提示
-    let imageTextHint = "";
-    if (imagePaths.length > 0) {
-        imageTextHint = `
-[包含 ${imagePaths.length} 张图片]`; // 在纯文本消息中提示图片
-    }
+    const imageTextHint = (imagePaths.length > 0) ? `\n[包含 ${imagePaths.length} 张图片]` : "";
 
     // 为 emailHtmlBody 添加图片预览 (使用 cid)
     let imageHtmlForEmail = "";
     if (imagePaths.length > 0) {
         imageHtmlForEmail += "<p><b>图片内容:</b></p>";
         imagePaths.forEach((imgPath, index) => {
-            // path.basename 在渲染进程不可用，这里仅用作占位符，实际文件名在主进程生成
-            // 使用 cid:image_0, cid:image_1 等
             imageHtmlForEmail += `<p><img src="cid:image_${index}" alt="附件图片 ${index + 1}" style="max-width: 100%; height: auto; border: 1px solid #ddd; padding: 2px;"/></p>`;
         });
     }
 
-    // 确保内容中的换行符在 HTML <pre> 标签中正确显示
     const preFormattedContent = `<pre style="white-space: pre-wrap; word-wrap: break-word; margin: 0;">${escapedContent}</pre>`;
 
     switch (template) {
         case 'emoji':
-            msgBody = `🔢 来源：${sender}
-📝 内容：${content}${imageTextHint}
-⏰ 时间：${time}`;
+            plainTextForChain = `🔢 来源：${sender}\n📝 内容：${content}\n⏰ 时间：${time}`;
+            msgBody = plainTextForChain + imageTextHint;
             emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p>${preFormattedContent}${imageHtmlForEmail}<p>⏰ 时间：${escapedTime}</p>`;
             break;
         case 'brackets':
-            msgBody = `【来源】『${sender}』
-【内容】「${content}」${imageTextHint}
-【时间】『${time}』`;
+            plainTextForChain = `【来源】『${sender}』\n【内容】「${content}」\n【时间】『${time}』`;
+            msgBody = plainTextForChain + imageTextHint;
             emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${preFormattedContent}」</p>${imageHtmlForEmail}<p>【时间】『${escapedTime}』</p>`;
             break;
         case 'symbols':
-            msgBody = `✦ 来源：${sender}
-✧ 内容：${content}${imageTextHint}
-✦ 时间：${time}`;
+            plainTextForChain = `✦ 来源：${sender}\n✧ 内容：${content}\n✦ 时间：${time}`;
+            msgBody = plainTextForChain + imageTextHint;
             emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p>${preFormattedContent}${imageHtmlForEmail}<p>✦ 时间：${escapedTime}</p>`;
             break;
         case 'markdown_lines':
-            msgBody = `---
-### 来源
-${sender}
-
-### 内容
-${content}${imageTextHint}
-
-### 时间
-${time}
----`;
+            plainTextForChain = `---\n### 来源\n${sender}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
+            // msgBody 在 plainTextForChain 的基础上，在最后一个 "---" 前加入图片提示
+            msgBody = plainTextForChain.substring(0, plainTextForChain.lastIndexOf('\n---')) + imageTextHint + plainTextForChain.substring(plainTextForChain.lastIndexOf('\n---'));
             emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3>${preFormattedContent}${imageHtmlForEmail}<h3>时间</h3><p>${escapedTime}</p><hr>`;
             break;
         case 'markdown_bold':
-            msgBody = `**来源**：${sender}
-**内容**：${content}${imageTextHint}
-**时间**：${time}`;
+            plainTextForChain = `**来源**：${sender}\n**内容**：${content}\n**时间**：${time}`;
+            msgBody = plainTextForChain + imageTextHint;
             emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p>${preFormattedContent}${imageHtmlForEmail}<p><b>时间</b>：${escapedTime}</p>`;
             break;
         case 'markdown_table':
-            // 对于表格，内容部分可能需要更复杂的处理以适应 preFormattedContent 和 imageHtmlForEmail
-            msgBody = `| 项目 | 内容       |
-|------|------------|
-| 来源 | ${sender}   |
-| 内容 | ${content}${imageTextHint} |
-| 时间 | ${time}    |`;
+            plainTextForChain = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
+            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}${imageTextHint} |\n| 时间 | ${time}    |`;
             emailHtmlBody = `<table border="1" style="border-collapse: collapse; width: 100%;">
                              <thead><tr><th style="padding: 5px; text-align: left;">项目</th><th style="padding: 5px; text-align: left;">内容</th></tr></thead>
                              <tbody>
@@ -207,14 +185,13 @@ ${time}
             break;
         case 'default':
         default:
-            msgBody = `来源: ${sender}
-内容: ${content}${imageTextHint}
-时间: ${time}`;
+            plainTextForChain = `来源: ${sender}\n内容: ${content}\n时间: ${time}`;
+            msgBody = plainTextForChain + imageTextHint;
             emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p><b>内容</b>：</p>${preFormattedContent}${imageHtmlForEmail}<p><b>时间</b>: ${escapedTime}</p>`;
             break;
     }
 
-    return { msgBody, emailHtmlBody };
+    return { msgBody, emailHtmlBody, plainTextForChain };
 }
 
 // --- 新增：提取数字的辅助函数 ---
@@ -301,41 +278,51 @@ async function handleMessage(sender, content, time, imagePaths = []) { // 确保
             console.log(`[BuyTheWay] 使用消息模板: ${template}`);
 
             // 使用新函数格式化消息, 传入 imagePaths
-            const { msgBody, emailHtmlBody } = formatMessage(template, sender, content, time, imagePaths);
+            const { msgBody, emailHtmlBody, plainTextForChain } = formatMessage(template, sender, content, time, imagePaths);
 
             // 转发到QQ好友
             const forwardToUsersConfig = config.forwardConfig?.toUsers;
             if (forwardToUsersConfig?.enabled) {
-                const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback
-                const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+                const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || [];
+                const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean);
 
                 if (userIdsToForward.length > 0) {
                     console.log(`[BuyTheWay] 准备转发到 ${userIdsToForward.length} 个QQ好友:`, userIdsToForward);
-                    for (const userId of userIdsToForward) { // Iterate over extracted IDs
+                    for (const userId of userIdsToForward) {
                         try {
                             const friend = window.euphony.Friend.fromUin(userId);
                             if (friend) {
-                                // 发送文本部分
-                                if (msgBody.trim()) { // 确保有文本内容才发送
-                                    const msgObj = new window.euphony.PlainText(msgBody);
-                                    await friend.sendMessage(msgObj); // sendMessage is async
-                                    console.log(`[BuyTheWay] 成功转发文本到好友 ${userId}`);
-                                }
-
-                                // Euphony 发送图片逻辑
-                                if (imagePaths.length > 0 && window.euphony.Image && typeof window.euphony.Image === 'function') {
-                                    for (const imgPath of imagePaths) {
-                                        try {
-                                            console.log(`[BuyTheWay] Preparing to send image ${imgPath} to friend ${userId}`);
-                                            const imgMsg = new window.euphony.Image(imgPath); // 使用 Euphony 的 Image 类
-                                            await friend.sendMessage(imgMsg); // sendMessage 可能返回 Promise
-                                            console.log(`[BuyTheWay] 成功转发图片 ${imgPath} 到好友 ${userId}`);
-                                        } catch (imgErr) {
-                                            console.error(`[BuyTheWay] Euphony 转发图片 ${imgPath} 给好友 ${userId} 失败:`, imgErr);
+                                if (imagePaths.length > 0 && window.euphony.MessageChain && window.euphony.PlainText && window.euphony.Image) {
+                                    // 使用 MessageChain 发送图文混合消息
+                                    try {
+                                        const messageChain = new window.euphony.MessageChain();
+                                        if (plainTextForChain.trim()) {
+                                            messageChain.append(new window.euphony.PlainText(plainTextForChain));
+                                        }
+                                        for (const imgPath of imagePaths) {
+                                            messageChain.append(new window.euphony.Image(imgPath));
+                                        }
+                                        
+                                        if (messageChain.get(0) !== undefined) { // 确保链不为空
+                                            await friend.sendMessage(messageChain);
+                                            console.log(`[BuyTheWay] 成功通过 MessageChain 转发给好友 ${userId}`);
+                                        } else {
+                                            console.log(`[BuyTheWay] MessageChain 为空 (无文本和图片), 未发送给好友 ${userId}`);
+                                        }
+                                    } catch (chainError) {
+                                        console.error(`[BuyTheWay] 使用 MessageChain 转发给好友 ${userId} 失败:`, chainError, ". 尝试仅发送文本.");
+                                        // Fallback: 仅发送文本 (msgBody 包含图片提示)
+                                        if (msgBody.trim()) {
+                                            await friend.sendMessage(new window.euphony.PlainText(msgBody));
+                                            console.log(`[BuyTheWay] Fallback: 成功转发纯文本给好友 ${userId}`);
                                         }
                                     }
-                                } else if (imagePaths.length > 0) {
-                                    console.warn(`[BuyTheWay] Euphony Image class not available, cannot send images to friend ${userId}.`);
+                                } else {
+                                    // 无图片或 MessageChain 组件不可用，仅发送文本 (msgBody 可能包含图片提示)
+                                    if (msgBody.trim()) {
+                                        await friend.sendMessage(new window.euphony.PlainText(msgBody));
+                                        console.log(`[BuyTheWay] 成功转发纯文本消息给好友 ${userId} (无图片或MessageChain不可用)`);
+                                    }
                                 }
                             } else {
                                 console.warn(`[BuyTheWay] 未找到好友 ${userId}，无法转发`);
@@ -357,36 +344,46 @@ async function handleMessage(sender, content, time, imagePaths = []) { // 确保
             // 转发到QQ群 (修改：使用 groupsRaw 并提取数字)
             const forwardToGroupsConfig = config.forwardConfig?.toGroups;
             if (forwardToGroupsConfig?.enabled) {
-                const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []; // Fallback
-                const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+                const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || [];
+                const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean);
 
                 if (groupIdsToForward.length > 0) {
                     console.log(`[BuyTheWay] 准备转发到 ${groupIdsToForward.length} 个QQ群:`, groupIdsToForward);
-                    for (const groupId of groupIdsToForward) { // Iterate over extracted IDs
+                    for (const groupId of groupIdsToForward) {
                         try {
                             const groupObj = window.euphony.Group.make(groupId);
                             if (groupObj) {
-                                // 发送文本部分
-                                if (msgBody.trim()) {
-                                    const msgObj = new window.euphony.PlainText(msgBody);
-                                    await groupObj.sendMessage(msgObj); // sendMessage is async
-                                    console.log(`[BuyTheWay] 成功转发文本到群 ${groupId}`);
-                                }
+                                 if (imagePaths.length > 0 && window.euphony.MessageChain && window.euphony.PlainText && window.euphony.Image) {
+                                    // 使用 MessageChain 发送图文混合消息
+                                    try {
+                                        const messageChain = new window.euphony.MessageChain();
+                                        if (plainTextForChain.trim()) {
+                                            messageChain.append(new window.euphony.PlainText(plainTextForChain));
+                                        }
+                                        for (const imgPath of imagePaths) {
+                                            messageChain.append(new window.euphony.Image(imgPath));
+                                        }
 
-                                // Euphony 发送图片逻辑
-                                if (imagePaths.length > 0 && window.euphony.Image && typeof window.euphony.Image === 'function') {
-                                    for (const imgPath of imagePaths) {
-                                        try {
-                                            console.log(`[BuyTheWay] Preparing to send image ${imgPath} to group ${groupId}`);
-                                            const imgMsg = new window.euphony.Image(imgPath);
-                                            await groupObj.sendMessage(imgMsg); // sendMessage is async
-                                            console.log(`[BuyTheWay] 成功转发图片 ${imgPath} 到群 ${groupId}`);
-                                        } catch (imgErr) {
-                                            console.error(`[BuyTheWay] Euphony 转发图片 ${imgPath} 给群聊 ${groupId} 失败:`, imgErr);
+                                        if (messageChain.get(0) !== undefined) { // 确保链不为空
+                                            await groupObj.sendMessage(messageChain);
+                                            console.log(`[BuyTheWay] 成功通过 MessageChain 转发给群 ${groupId}`);
+                                        } else {
+                                            console.log(`[BuyTheWay] MessageChain 为空 (无文本和图片), 未发送给群 ${groupId}`);
+                                        }
+                                    } catch (chainError) {
+                                        console.error(`[BuyTheWay] 使用 MessageChain 转发给群 ${groupId} 失败:`, chainError, ". 尝试仅发送文本.");
+                                        // Fallback: 仅发送文本 (msgBody 包含图片提示)
+                                        if (msgBody.trim()) {
+                                            await groupObj.sendMessage(new window.euphony.PlainText(msgBody));
+                                            console.log(`[BuyTheWay] Fallback: 成功转发纯文本给群 ${groupId}`);
                                         }
                                     }
-                                } else if (imagePaths.length > 0) {
-                                    console.warn(`[BuyTheWay] Euphony Image class not available, cannot send images to group ${groupId}.`);
+                                } else {
+                                    // 无图片或 MessageChain 组件不可用，仅发送文本 (msgBody 可能包含图片提示)
+                                    if (msgBody.trim()) {
+                                        await groupObj.sendMessage(new window.euphony.PlainText(msgBody));
+                                        console.log(`[BuyTheWay] 成功转发纯文本消息给群 ${groupId} (无图片或MessageChain不可用)`);
+                                    }
                                 }
                             } else {
                                 console.warn(`[BuyTheWay] 未找到群 ${groupId}，无法转发`);
