@@ -59,20 +59,22 @@ function updateSettingsWithDefaults(existingSettings, defaults) {
 }
 
 // Helper function to extract numbers from a string
+// 辅助函数：从字符串中提取数字
 const extractNumbers = (str) => {
     if (typeof str !== 'string') return null;
-    const match = str.match(/\d+/); // Find the first sequence of digits
-    return match ? match[0] : null; // Return the first match or null
+    const match = str.match(/\d+/); // 查找第一个数字序列
+    return match ? match[0] : null; // 返回第一个匹配项，否则返回 null
 };
 
 // --- 新增：格式化消息函数 (与 renderer.js 中的类似) ---
-function formatMessage(template, sender, content, time) {
+function formatMessage(template, senderWithComment, content, time) { // sender 变为 senderWithComment
     let msgBody = '';
     let emailHtmlBody = '';
 
     // Basic HTML escaping for email body content
+    // 邮件正文内容的基础 HTML 转义
     const escapeHtml = (unsafe) => {
-        if (typeof unsafe !== 'string') return unsafe; // Handle non-string input
+        if (typeof unsafe !== 'string') return unsafe; // 处理非字符串输入
         return unsafe
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -81,36 +83,36 @@ function formatMessage(template, sender, content, time) {
             .replace(/'/g, "&#039;");
     };
     const escapedContent = escapeHtml(content);
-    const escapedSender = escapeHtml(sender);
+    const escapedSenderWithComment = escapeHtml(senderWithComment); // 使用带注释的发送者
     const escapedTime = escapeHtml(time);
 
     switch (template) {
         case 'emoji':
-            msgBody = `🔢 来源：${sender}\n📝 内容：${content}\n⏰ 时间：${time}`;
-            emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p><pre>${escapedContent}</pre><p>⏰ 时间：${escapedTime}</p>`;
+            msgBody = `🔢 来源：${senderWithComment}\n📝 内容：${content}\n⏰ 时间：${time}`;
+            emailHtmlBody = `<p>🔢 来源：${escapedSenderWithComment}</p><p>📝 内容：</p><pre>${escapedContent}</pre><p>⏰ 时间：${escapedTime}</p>`;
             break;
         case 'brackets':
-            msgBody = `【来源】『${sender}』\n【内容】「${content}」\n【时间】『${time}』`;
-            emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${escapedContent}」</p><p>【时间】『${escapedTime}』</p>`;
+            msgBody = `【来源】『${senderWithComment}』\n【内容】「${content}」\n【时间】『${time}』`;
+            emailHtmlBody = `<p>【来源】『${escapedSenderWithComment}』</p><p>【内容】「${escapedContent}」</p><p>【时间】『${escapedTime}』</p>`;
             break;
         case 'symbols':
-            msgBody = `✦ 来源：${sender}\n✧ 内容：${content}\n✦ 时间：${time}`;
-            emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p><pre>${escapedContent}</pre><p>✦ 时间：${escapedTime}</p>`;
+            msgBody = `✦ 来源：${senderWithComment}\n✧ 内容：${content}\n✦ 时间：${time}`;
+            emailHtmlBody = `<p>✦ 来源：${escapedSenderWithComment}</p><p>✧ 内容：</p><pre>${escapedContent}</pre><p>✦ 时间：${escapedTime}</p>`;
             break;
         case 'markdown_lines':
-            msgBody = `---\n### 来源\n${sender}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
-            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3><pre>${escapedContent}</pre><h3>时间</h3><p>${escapedTime}</p><hr>`;
+            msgBody = `---\n### 来源\n${senderWithComment}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
+            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSenderWithComment}</p><h3>内容</h3><pre>${escapedContent}</pre><h3>时间</h3><p>${escapedTime}</p><hr>`;
             break;
         case 'markdown_bold':
-            msgBody = `**来源**：${sender}\n**内容**：${content}\n**时间**：${time}`;
-            emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p><pre>${escapedContent}</pre><p><b>时间</b>：${escapedTime}</p>`;
+            msgBody = `**来源**：${senderWithComment}\n**内容**：${content}\n**时间**：${time}`;
+            emailHtmlBody = `<p><b>来源</b>：${escapedSenderWithComment}</p><p><b>内容</b>：</p><pre>${escapedContent}</pre><p><b>时间</b>：${escapedTime}</p>`;
             break;
         case 'markdown_table':
-            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
+            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${senderWithComment}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
             emailHtmlBody = `<table border="1" style="border-collapse: collapse; padding: 5px;">
                              <thead><tr><th>项目</th><th>内容</th></tr></thead>
                              <tbody>
-                               <tr><td>来源</td><td>${escapedSender}</td></tr>
+                               <tr><td>来源</td><td>${escapedSenderWithComment}</td></tr>
                                <tr><td>内容</td><td><pre style="margin:0; padding:0;">${escapedContent}</pre></td></tr>
                                <tr><td>时间</td><td>${escapedTime}</td></tr>
                              </tbody>
@@ -118,8 +120,8 @@ function formatMessage(template, sender, content, time) {
             break;
         case 'default':
         default:
-            msgBody = `来源: ${sender}\n内容: ${content}\n时间: ${time}`;
-            emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p>内容：</p><pre>${escapedContent}</pre><p><b>时间</b>: ${escapedTime}</p>`;
+            msgBody = `来源: ${senderWithComment}\n内容: ${content}\n时间: ${time}`;
+            emailHtmlBody = `<p><b>来源</b>: ${escapedSenderWithComment}</p><p>内容：</p><pre>${escapedContent}</pre><p><b>时间</b>: ${escapedTime}</p>`;
             break;
     }
 
@@ -153,27 +155,27 @@ function loadOrInitSettings() {
     try {
         if (!fs.existsSync(pluginDataPath)) {
             fs.mkdirSync(pluginDataPath, { recursive: true });
-            console.log("[BuyTheWay] Plugin data path created:", pluginDataPath);
+            console.log("[BuyTheWay] 插件数据路径已创建:", pluginDataPath);
         }
 
         if (!fs.existsSync(settingsPath)) {
-            console.log("[BuyTheWay] Settings file not found, creating with defaults.");
+            console.log("[BuyTheWay] 未找到设置文件，使用默认值创建。");
             currentSettings = JSON.parse(JSON.stringify(defaultSettings)); // 深拷贝默认设置
             fs.writeFileSync(settingsPath, JSON.stringify(currentSettings, null, 4), 'utf-8');
         } else {
-            console.log("[BuyTheWay] Loading settings from:", settingsPath);
+            console.log("[BuyTheWay] 从以下位置加载设置:", settingsPath);
             const fileContent = fs.readFileSync(settingsPath, 'utf-8');
             currentSettings = JSON.parse(fileContent);
 
             // 检查并补充缺失的默认值
             if (updateSettingsWithDefaults(currentSettings, defaultSettings)) {
-                console.log("[BuyTheWay] Settings updated with new default values.");
+                console.log("[BuyTheWay] 设置已使用新的默认值更新。");
                 fs.writeFileSync(settingsPath, JSON.stringify(currentSettings, null, 4), 'utf-8');
             }
         }
-        console.log("[BuyTheWay] Settings loaded successfully.");
+        console.log("[BuyTheWay] 设置加载成功。");
     } catch (error) {
-        console.error("[BuyTheWay] Error loading or initializing settings:", error);
+        console.error("[BuyTheWay] 加载或初始化设置时出错:", error);
         // 加载失败时使用默认设置，防止插件完全失效
         currentSettings = JSON.parse(JSON.stringify(defaultSettings));
         if (Notification.isSupported()) {
@@ -190,15 +192,15 @@ function loadOrInitSettings() {
 async function saveSettingsToFile(settingsToSave) {
     try {
         // 增加日志：记录要保存的 targetProducts
-        console.log("[BuyTheWay] Attempting to save settings. targetProducts:", JSON.stringify(settingsToSave.targetProducts));
+        console.log("[BuyTheWay] 尝试保存设置。 targetProducts:", JSON.stringify(settingsToSave.targetProducts));
         // 更新内存中的设置缓存
         currentSettings = settingsToSave;
         // 写入文件
         fs.writeFileSync(settingsPath, JSON.stringify(settingsToSave, null, 4), 'utf-8');
-        console.log("[BuyTheWay] Settings saved successfully to file:", settingsPath); // 修改日志消息
+        console.log("[BuyTheWay] 设置已成功保存到文件:", settingsPath);
         return { success: true };
     } catch (error) {
-        console.error("[BuyTheWay] Error saving settings to file:", error);
+        console.error("[BuyTheWay] 保存设置到文件时出错:", error);
         return { success: false, error: error.message };
     }
 }
@@ -206,12 +208,12 @@ async function saveSettingsToFile(settingsToSave) {
 // --- IPC 处理程序注册 ---
 
 ipcMain.handle("buy_the_way.getPluginPath", () => {
-    console.log(`[BuyTheWay] IPC handle 'getPluginPath' called. Current pluginRootPath: '${pluginRootPath}'`);
+    console.log(`[BuyTheWay] IPC句柄 'getPluginPath' 已调用。当前 pluginRootPath: '${pluginRootPath}'`);
     if (pluginRootPath) {
-        console.log("[BuyTheWay] IPC getPluginPath returning stored path:", pluginRootPath);
+        console.log("[BuyTheWay] IPC getPluginPath 返回存储的路径:", pluginRootPath);
         return pluginRootPath;
     } else {
-        console.error("[BuyTheWay] [Error] IPC getPluginPath called but pluginRootPath is null or empty.");
+        console.error("[BuyTheWay] [错误] IPC getPluginPath 已调用，但 pluginRootPath 为空或无效。");
         return null;
     }
 });
@@ -228,15 +230,15 @@ ipcMain.handle("buy_the_way.loadConfig", async () => {
     if (currentSettings) {
         return { success: true, config: currentSettings };
     } else {
-        console.error("[BuyTheWay] Failed to load settings for loadConfig handler.");
-        return { success: false, error: "Failed to load settings.", config: defaultSettings };
+        console.error("[BuyTheWay] 为 loadConfig 句柄加载设置失败。");
+        return { success: false, error: "加载设置失败。", config: defaultSettings };
     }
 });
 
 ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body, imagePaths = []) => { // 增加 imagePaths 参数
     if (!emailConfig || !emailConfig.enabled) {
-        console.log("[BuyTheWay] Email notification is disabled.");
-        return { success: false, error: "Email notification is disabled." };
+        console.log("[BuyTheWay] 邮件通知已禁用。");
+        return { success: false, error: "邮件通知已禁用。" };
     }
     try {
         const transporter = nodemailer.createTransport({
@@ -250,7 +252,7 @@ ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body
             }
         });
         const mailOptions = {
-            from: `"${emailConfig.fromName || 'BuyTheWay Bot'}" <${emailConfig.auth.user}>`,
+            from: `"${emailConfig.fromName || 'BuyTheWay 机器人'}" <${emailConfig.auth.user}>`, // 修改机器人名称
             to: emailConfig.to,
             subject: subject,
             html: body,
@@ -258,7 +260,7 @@ ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body
         };
 
         if (imagePaths && imagePaths.length > 0) {
-            console.log('[BuyTheWay] Preparing email attachments for paths:', imagePaths);
+            console.log('[BuyTheWay] 准备邮件附件，路径:', imagePaths);
             imagePaths.forEach((imgPath, index) => {
                 if (typeof imgPath === 'string' && fs.existsSync(imgPath)) {
                     try {
@@ -270,33 +272,33 @@ ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body
                             path: imgPath,
                             cid: `image_${index}` // 用于在html body中通过 <img src="cid:image_X"> 引用
                         });
-                        console.log(`[BuyTheWay] Added attachment: ${filename} (cid: image_${index}) from path: ${imgPath}`);
+                        console.log(`[BuyTheWay] 已添加附件: ${filename} (cid: image_${index}) 来自路径: ${imgPath}`);
                     } catch (err) {
-                        console.warn(`[BuyTheWay] Error accessing or preparing attachment for path: ${imgPath}. Error: ${err.message}`);
+                        console.warn(`[BuyTheWay] 访问或准备附件路径时出错: ${imgPath}. 错误: ${err.message}`);
                     }
                 } else {
-                    console.warn(`[BuyTheWay] Image path for email attachment does not exist, is not a string, or is not accessible: ${imgPath}`);
+                    console.warn(`[BuyTheWay] 邮件附件的图片路径不存在、不是字符串或无法访问: ${imgPath}`);
                 }
             });
         }
 
         let info = await transporter.sendMail(mailOptions);
-        console.log("[BuyTheWay] Email sent: %s", info.messageId);
+        console.log("[BuyTheWay] 邮件已发送: %s", info.messageId);
         return { success: true, messageId: info.messageId };
     } catch (error) {
-        console.error("[BuyTheWay] Error sending email:", error);
+        console.error("[BuyTheWay] 发送邮件时出错:", error);
         return { success: false, error: error.message };
     }
 });
 
 ipcMain.handle("buy_the_way.showOpenDialog", async (event, options) => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
-    if (!focusedWindow) return { success: false, error: "No focused window" };
+    if (!focusedWindow) return { success: false, error: "没有聚焦的窗口" }; // 没有聚焦窗口
     try {
         const result = await dialog.showOpenDialog(focusedWindow, options);
         return { success: true, canceled: result.canceled, filePaths: result.filePaths };
     } catch (error) {
-        console.error("[BuyTheWay] Error showing open dialog:", error);
+        console.error("[BuyTheWay] 显示打开对话框时出错:", error);
         return { success: false, error: error.message };
     }
 });
@@ -306,7 +308,7 @@ ipcMain.on("buy_the_way.showToast", (event, message, type = 'info') => {
     if (Notification.isSupported()) {
         new Notification({ title: 'BuyTheWay 提示', body: message }).show();
     } else {
-        console.warn("[BuyTheWay] Notifications not supported on this system.");
+        console.warn("[BuyTheWay] 此系统不支持通知。"); // 系统不支持通知
     }
 });
 
@@ -317,41 +319,41 @@ ipcMain.on("buy_the_way.messageFromRenderer", (event, message) => {
 // --- 主逻辑 ---
 
 function onLoad(plugin) {
-    console.log("[BuyTheWay] Plugin loading...");
-    console.log("[BuyTheWay] Received plugin object:", plugin);
+    console.log("[BuyTheWay] 插件加载中...");
+    console.log("[BuyTheWay] 收到的插件对象:", plugin);
 
     // 初始化路径
     try {
         if (plugin && plugin.path && plugin.path.plugin) {
             pluginRootPath = plugin.path.plugin;
             pluginDataPath = plugin.path.data;
-            console.log("[BuyTheWay] [Success] Plugin paths obtained from plugin object:", { pluginRootPath, pluginDataPath });
+            console.log("[BuyTheWay] [成功] 从插件对象获取插件路径:", { pluginRootPath, pluginDataPath }); // [Success] Plugin paths obtained from plugin object:
         } else if (typeof LiteLoader !== 'undefined' && LiteLoader.plugins && LiteLoader.plugins["buy_the_way"] && LiteLoader.plugins["buy_the_way"].path && LiteLoader.plugins["buy_the_way"].path.plugin) {
-            console.log("[BuyTheWay] [Info] Trying to get path from LiteLoader global.");
+            console.log("[BuyTheWay] [信息] 尝试从 LiteLoader 全局获取路径。"); // [Info] Trying to get path from LiteLoader global.
             pluginRootPath = LiteLoader.plugins["buy_the_way"].path.plugin;
             pluginDataPath = LiteLoader.plugins["buy_the_way"].path.data;
-            console.log("[BuyTheWay] [Success] Plugin paths obtained from LiteLoader global:", { pluginRootPath, pluginDataPath });
+            console.log("[BuyTheWay] [成功] 从 LiteLoader 全局获取插件路径:", { pluginRootPath, pluginDataPath }); // [Success] Plugin paths obtained from LiteLoader global:
         } else {
-            console.warn("[BuyTheWay] [Warning] Failed to get plugin path from plugin object or LiteLoader global. Using fallback path for data.");
+            console.warn("[BuyTheWay] [警告] 从插件对象或 LiteLoader 全局获取插件路径失败。对数据使用回退路径。"); // [Warning] Failed to get plugin path from plugin object or LiteLoader global. Using fallback path for data.
             pluginDataPath = path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + "/.config"), 'LiteLoaderQQNT', 'plugins_data', 'buy_the_way');
             pluginRootPath = null;
-            console.warn("[BuyTheWay] Fallback data path:", pluginDataPath);
-            console.error("[BuyTheWay] [Error] Could not determine plugin root path! Settings window might fail to load.");
+            console.warn("[BuyTheWay] 回退数据路径:", pluginDataPath); // Fallback data path:
+            console.error("[BuyTheWay] [错误] 无法确定插件根路径！设置窗口可能无法加载。"); // [Error] Could not determine plugin root path! Settings window might fail to load.
         }
 
         if (pluginDataPath) {
             settingsPath = path.join(pluginDataPath, "settings.json");
-            console.log("[BuyTheWay] Settings path set to:", settingsPath);
+            console.log("[BuyTheWay] 设置路径已设为:", settingsPath); // Settings path set to:
             loadOrInitSettings();
         } else {
-            console.error("[BuyTheWay] [Critical Error] pluginDataPath could not be determined. Settings will not load/save.");
+            console.error("[BuyTheWay] [严重错误] 无法确定 pluginDataPath。设置将无法加载/保存。"); // [Critical Error] pluginDataPath could not be determined. Settings will not load/save.
             if (Notification.isSupported()) {
                 new Notification({ title: 'BuyTheWay 严重错误', body: '无法确定插件数据路径，设置功能将无法使用。' }).show();
             }
         }
 
     } catch (error) {
-        console.error("[BuyTheWay] [Critical Error] Error during path initialization:", error);
+        console.error("[BuyTheWay] [严重错误] 路径初始化期间出错:", error); // [Critical Error] Error during path initialization:
         pluginRootPath = null;
         if (Notification.isSupported()) {
             new Notification({ title: 'BuyTheWay 错误', body: `插件路径初始化失败: ${error.message}` }).show();
@@ -366,7 +368,7 @@ async function handleReceivedMessage(message) {
     }
 
     // 增加日志：记录当前处理消息时使用的 targetProducts
-    console.log('[BuyTheWay] handleReceivedMessage: Using targetProducts:', JSON.stringify(currentSettings?.targetProducts || 'Settings not loaded'));
+    console.log('[BuyTheWay] handleReceivedMessage: 使用 targetProducts:', JSON.stringify(currentSettings?.targetProducts || '未加载设置')); // Using targetProducts: Settings not loaded
     console.log('[BuyTheWay] 收到消息，开始处理:', JSON.stringify(message).substring(0, 100) + '...');
 
     if (!currentSettings) {
@@ -375,14 +377,28 @@ async function handleReceivedMessage(message) {
     }
 
     // 检查是否在监控群组中 (从 Raw 提取数字)
-    const monitoredGroupsRaw = currentSettings.monitoredGroupsRaw || currentSettings.monitoredGroups || []; // Fallback for older configs
-    const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs on the fly
-    const senderIdentifier = message.chatType === 'group' ? message.peerUid : message.senderUid;
+    const monitoredGroupsRaw = currentSettings.monitoredGroupsRaw || currentSettings.monitoredGroups || []; // Fallback for older configs // 旧配置回退
+    const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs on the fly // 动态提取ID
+
+    // --- 新增：查找带注释的来源 --- 
+    let senderIdentifierWithComment = message.chatType === 'group' ? message.peerUid : message.senderUid;
+    const senderIdForLookup = senderIdentifierWithComment; // Use the numeric ID for lookup // 使用数字ID进行查找
+
+    const foundSourceLine = monitoredGroupsRaw.find(line => {
+        const extractedNum = extractNumbers(line);
+        return extractedNum && extractedNum === String(senderIdForLookup);
+    });
+
+    if (foundSourceLine) {
+        senderIdentifierWithComment = foundSourceLine.trim(); // Use the full line with comment // 使用带注释的完整行
+    }
+    // --- 查找结束 ---
+
     const senderName = message.chatType === 'group' ? message.peerName : message.senderName;
     const messageTime = new Date(message.msgTime * 1000).toLocaleString();
 
     // 使用提取出的 monitoredGroupIds 进行判断
-    if (!monitoredGroupIds.includes(senderIdentifier)) {
+    if (!monitoredGroupIds.includes(senderIdentifier)) { // senderIdentifier 变量似乎未定义，这里可能应该是 senderIdForLookup 或者 message.peerUid/message.senderUid
         console.log(`[BuyTheWay] 消息来源 ${senderIdentifier} (${senderName}) 不在监控列表 [${monitoredGroupIds.join(', ')}] 中，跳过处理`);
         return;
     }
@@ -437,13 +453,15 @@ async function handleReceivedMessage(message) {
         // 获取选择的模板并格式化消息
         const template = currentSettings.messageFormatTemplate || 'default';
         console.log(`[BuyTheWay] 使用消息模板: ${template}`);
-        const { msgBody, emailHtmlBody } = formatMessage(template, `${senderName} (${senderIdentifier})`, content, messageTime);
+        // 使用 senderIdentifierWithComment 替换 senderName 和 senderIdentifier 的组合
+        const { msgBody, emailHtmlBody } = formatMessage(template, senderIdentifierWithComment, content, messageTime);
 
         // 1. 邮件转发
         if (currentSettings.emailConfig && currentSettings.emailConfig.enabled) {
             console.log('[BuyTheWay] 邮件转发已启用，准备发送邮件');
             try {
-                const subject = `BuyTheWay 消息匹配: ${senderName}`;
+                // 邮件主题也使用带注释的来源
+                const subject = `BuyTheWay 消息匹配: ${senderIdentifierWithComment}`;
                 const emailConfig = currentSettings.emailConfig;
 
                 console.log(`[BuyTheWay] 邮件服务器配置: ${emailConfig.host}:${emailConfig.port}, 收件人: ${emailConfig.to}`);
@@ -459,7 +477,7 @@ async function handleReceivedMessage(message) {
                     });
 
                     const mailResult = await transporter.sendMail({
-                        from: `"BuyTheWay Bot" <${emailConfig.auth.user}>`,
+                        from: `"BuyTheWay 机器人" <${emailConfig.auth.user}>`, // 修改机器人名称
                         to: emailConfig.to,
                         subject,
                         html: emailHtmlBody // 使用格式化后的 HTML 邮件正文
@@ -495,8 +513,8 @@ async function handleReceivedMessage(message) {
         // 2. 转发到用户 (从 Raw 提取数字)
         const forwardToUsersConfig = currentSettings.forwardConfig?.toUsers;
         if (forwardToUsersConfig && forwardToUsersConfig.enabled) {
-            const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback
-            const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+            const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback //回退
+            const userIdsToForward = usersRaw.map(extractNumbers).filter(Boolean); // Extract IDs //提取ID
             if (userIdsToForward.length > 0) {
                 console.log(`[BuyTheWay] 准备转发到 ${userIdsToForward.length} 个QQ用户:`, userIdsToForward);
                 let windowsCount = 0;
@@ -504,7 +522,7 @@ async function handleReceivedMessage(message) {
                     try {
                         window.webContents.send("buy_the_way.forwardToUsers", {
                             users: userIdsToForward, // 发送提取后的 ID 列表
-                            content: msgBody
+                            content: msgBody // msgBody 已包含带注释的来源
                         });
                         windowsCount++;
                     } catch (sendErr) {
@@ -522,8 +540,8 @@ async function handleReceivedMessage(message) {
         // 3. 转发到群 (从 Raw 提取数字)
         const forwardToGroupsConfig = currentSettings.forwardConfig?.toGroups;
         if (forwardToGroupsConfig && forwardToGroupsConfig.enabled) {
-            const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []; // Fallback
-            const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs
+            const groupsRaw = forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []; // Fallback //回退
+            const groupIdsToForward = groupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs //提取ID
             if (groupIdsToForward.length > 0) {
                 console.log(`[BuyTheWay] 准备转发到 ${groupIdsToForward.length} 个QQ群:`, groupIdsToForward);
                 let windowsCount = 0;
@@ -531,7 +549,7 @@ async function handleReceivedMessage(message) {
                     try {
                         window.webContents.send("buy_the_way.forwardToGroups", {
                             groups: groupIdsToForward, // 发送提取后的 ID 列表
-                            content: msgBody
+                            content: msgBody // msgBody 已包含带注释的来源
                         });
                         windowsCount++;
                     } catch (sendErr) {
@@ -548,12 +566,12 @@ async function handleReceivedMessage(message) {
 
         // 本地通知(如果没有任何转发或配置不正确时)
         if ((!currentSettings.emailConfig || !currentSettings.emailConfig.enabled) &&
-            (!forwardToUsersConfig || !forwardToUsersConfig.enabled || (forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []).map(extractNumbers).filter(Boolean).length === 0) && // Check extracted IDs
-            (!forwardToGroupsConfig || !forwardToGroupsConfig.enabled || (forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []).map(extractNumbers).filter(Boolean).length === 0)) { // Check extracted IDs
+            (!forwardToUsersConfig || !forwardToUsersConfig.enabled || (forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []).map(extractNumbers).filter(Boolean).length === 0) && // Check extracted IDs //检查提取的ID
+            (!forwardToGroupsConfig || !forwardToGroupsConfig.enabled || (forwardToGroupsConfig.groupsRaw || forwardToGroupsConfig.groups || []).map(extractNumbers).filter(Boolean).length === 0)) { // Check extracted IDs //检查提取的ID
             console.log('[BuyTheWay] 所有转发方式均未启用或无有效目标，显示本地通知');
             if (Notification.isSupported()) {
-                // 使用格式化后的 msgBody 显示通知
-                new Notification({ title: `BuyTheWay 消息匹配: ${senderName}`, body: msgBody }).show();
+                // 本地通知也使用带注释的来源 (通过 msgBody)
+                new Notification({ title: `BuyTheWay 消息匹配: ${senderIdentifierWithComment}`, body: msgBody }).show();
             }
         }
     } catch (error) {
@@ -566,7 +584,7 @@ async function handleReceivedMessage(message) {
 
 // 插件卸载时执行
 function onUnload(plugin) {
-    console.log("[BuyTheWay] Plugin unloaded.");
+    console.log("[BuyTheWay] 插件已卸载。"); // Plugin unloaded.
     ipcMain.removeHandler("buy_the_way.getPluginPath");
     ipcMain.removeHandler("buy_the_way.saveConfig");
     ipcMain.removeHandler("buy_the_way.loadConfig");

@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("buy_the_way_api", {
     // === 消息处理 ===
     // 渲染进程向主进程发送捕获到的消息
     sendMessageToMain: (message) => ipcRenderer.send("buy_the_way.messageFromRenderer", message),
-    // 监听主进程推送过来的新消息 (示例，具体实现待定)
+    // 监听主进程推送过来的新消息
     onNewMessage: (callback) => ipcRenderer.on("buy_the_way.newMessage", (event, message) => callback(message)),
 
     // === 转发功能 ===

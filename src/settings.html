@@ -31,20 +31,17 @@
       input[type="password"],
       input[type="number"],
       textarea {
-        width: calc(100% - 12px); /* Adjust for padding */
+        width: calc(100% - 12px); /* 为内边距调整宽度 */
         padding: 5px;
         margin-bottom: 10px;
-        /* Add fallbacks */
-        border: 1px solid var(--vscode-input-border, #cccccc); /* Fallback gray border */
+        /* 添加回退样式 */
+        border: 1px solid var(--vscode-input-border, #cccccc); /* 回退灰色边框 */
         border-radius: 3px;
         background-color: var(
           --vscode-input-background,
           #ffffff
-        ); /* Fallback white background */
-        color: var(
-          --vscode-input-foreground,
-          #000000
-        ); /* Fallback black text */
+        ); /* 回退白色背景 */
+        color: var(--vscode-input-foreground, #000000); /* 回退黑色文本 */
       }
       textarea {
         min-height: 60px;
@@ -53,34 +50,34 @@
       input[type="checkbox"],
       input[type="radio"] {
         margin-right: 5px;
-        /* Add basic styling for visibility */
-        appearance: none; /* Remove default styling */
+        /* 为可见性添加基本样式 */
+        appearance: none; /* 移除默认样式 */
         -webkit-appearance: none;
         width: 13px;
         height: 13px;
-        border: 1px solid var(--vscode-input-border, #999999); /* Fallback gray border */
+        border: 1px solid var(--vscode-input-border, #999999); /* 回退灰色边框 */
         border-radius: 2px;
-        position: relative; /* For positioning the checkmark */
-        vertical-align: middle; /* Align with text */
+        position: relative; /* 用于定位勾选标记 */
+        vertical-align: middle; /* 与文本对齐 */
         cursor: pointer;
         background-color: var(
           --vscode-input-background,
           #ffffff
-        ); /* Fallback white background */
+        ); /* 回退白色背景 */
       }
       input[type="checkbox"]:checked::before {
-        content: "✔"; /* Simple checkmark */
+        content: "✔"; /* 简单勾选标记 */
         position: absolute;
-        top: -2px; /* Adjust position */
-        left: 1px; /* Adjust position */
+        top: -2px; /* 调整位置 */
+        left: 1px; /* 调整位置 */
         font-size: 12px;
         color: var(
           --vscode-button-background,
           #007acc
-        ); /* Use button color or fallback */
+        ); /* 使用按钮颜色或回退色 */
       }
       input[type="radio"] {
-        border-radius: 50%; /* Make radios round */
+        border-radius: 50%; /* 使单选按钮变圆 */
       }
       input[type="radio"]:checked::before {
         content: "";
@@ -100,7 +97,7 @@
         display: inline-block;
         margin-left: 5px;
         font-weight: normal;
-        vertical-align: middle; /* Align with custom checkbox */
+        vertical-align: middle; /* 与自定义复选框对齐 */
       }
       button {
         padding: 8px 15px;
@@ -178,18 +175,26 @@
         </setting-item>
       </setting-list>
 
-      <label for="monitoredGroups">监控的群聊/用户 ID (每行一个):</label>
-      <textarea id="monitoredGroups" rows="3"></textarea>
+      <label for="monitoredGroups"
+        >监控的群聊/用户 ID (每行一个, 可带备注, 如: 123456(群名A)):</label
+      >
+      <textarea
+        id="monitoredGroups"
+        rows="3"
+        placeholder="例如：
+123456789 (张三)
+987654321 (技术交流群)"
+      ></textarea>
       <!-- 导入导出群ID -->
       <setting-list data-direction="row">
         <setting-item>
           <setting-button data-type="primary" id="exportMonitoredGroupsButton"
-            >导出群ID</setting-button
+            >导出列表</setting-button
           >
         </setting-item>
         <setting-item>
           <setting-button data-type="secondary" id="importMonitoredGroupsButton"
-            >导入群ID</setting-button
+            >导入列表</setting-button
           >
           <input
             type="file"
@@ -223,7 +228,7 @@
         <label for="emailHost">SMTP 服务器地址:</label>
         <input type="text" id="emailHost" />
         <label for="emailPort">端口:</label>
-        <input type="number" id="emailPort" placeholder="465" />
+        <input type="number" id="emailPort" placeholder="例如：465 或 587" />
         <label>
           <input type="checkbox" id="emailSecure" /> 使用 SSL/TLS 加密
         </label>
@@ -231,11 +236,14 @@
         <input type="text" id="emailUser" />
         <label for="emailPass">邮箱密码/授权码:</label>
         <input type="password" id="emailPass" />
-        <label for="emailTo">收件人邮箱:</label>
+        <label for="emailTo">收件人邮箱 (多个用英文逗号隔开):</label>
         <input type="text" id="emailTo" />
       </div>
       <!-- 将测试邮件按钮移到这里 -->
-      <setting-button data-type="secondary" id="testEmailButton" style="margin-top: 10px;"
+      <setting-button
+        data-type="secondary"
+        id="testEmailButton"
+        style="margin-top: 10px"
         >测试发送邮件</setting-button
       >
     </div>
@@ -251,11 +259,15 @@
         </label>
 
         <div id="forwardToUsersSection" class="hidden">
-          <label for="forwardToUsers">要转发到的QQ号 (每行一个):</label>
+          <label for="forwardToUsers"
+            >要转发到的QQ号 (每行一个, 可带备注, 如: 123456(好友A)):</label
+          >
           <textarea
             id="forwardToUsers"
             rows="3"
-            placeholder="请输入QQ号，每行一个"
+            placeholder="请输入QQ号，每行一个。例如：
+111111 (老板)
+222222 (小号)"
           ></textarea>
 
           <setting-list data-direction="row">
@@ -290,11 +302,15 @@
         </label>
 
         <div id="forwardToGroupsSection" class="hidden">
-          <label for="forwardToGroups">要转发到的群号 (每行一个):</label>
+          <label for="forwardToGroups"
+            >要转发到的群号 (每行一个, 可带备注, 如: 123456(群A)):</label
+          >
           <textarea
             id="forwardToGroups"
             rows="3"
-            placeholder="请输入群号，每行一个"
+            placeholder="请输入群号，每行一个。例如：
+333333 (家庭群)
+444444 (工作群)"
           ></textarea>
 
           <setting-list data-direction="row">
