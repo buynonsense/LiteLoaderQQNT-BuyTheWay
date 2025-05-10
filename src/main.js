@@ -1,7 +1,7 @@
 const { ipcMain, dialog, BrowserWindow, Notification } = require("electron");
 const nodemailer = require("nodemailer");
-const path = require("path");
-const fs = require("fs");
+const path = require("path"); // 确保导入 path 模块
+const fs = require("fs"); // 确保导入 fs 模块
 
 // --- 默认设置及更新函数 ---
 const defaultSettings = {
@@ -233,7 +233,7 @@ ipcMain.handle("buy_the_way.loadConfig", async () => {
     }
 });
 
-ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body) => {
+ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body, imagePaths = []) => { // 增加 imagePaths 参数
     if (!emailConfig || !emailConfig.enabled) {
         console.log("[BuyTheWay] Email notification is disabled.");
         return { success: false, error: "Email notification is disabled." };
@@ -244,13 +244,42 @@ ipcMain.handle("buy_the_way.sendEmail", async (event, emailConfig, subject, body
             port: emailConfig.port,
             secure: emailConfig.secure,
             auth: { user: emailConfig.auth.user, pass: emailConfig.auth.pass },
+            tls: {
+                // 在某些情况下，特别是自签名证书或特定邮件服务器，可能需要这个
+                rejectUnauthorized: emailConfig.rejectUnauthorized === undefined ? true : emailConfig.rejectUnauthorized
+            }
         });
         const mailOptions = {
-            from: `"BuyTheWay Bot" <${emailConfig.auth.user}>`,
+            from: `"${emailConfig.fromName || 'BuyTheWay Bot'}" <${emailConfig.auth.user}>`,
             to: emailConfig.to,
             subject: subject,
             html: body,
+            attachments: []
         };
+
+        if (imagePaths && imagePaths.length > 0) {
+            console.log('[BuyTheWay] Preparing email attachments for paths:', imagePaths);
+            imagePaths.forEach((imgPath, index) => {
+                if (typeof imgPath === 'string' && fs.existsSync(imgPath)) {
+                    try {
+                        const filename = path.basename(imgPath);
+                        // 检查文件是否可读
+                        fs.accessSync(imgPath, fs.constants.R_OK);
+                        mailOptions.attachments.push({
+                            filename: filename,
+                            path: imgPath,
+                            cid: `image_${index}` // 用于在html body中通过 <img src="cid:image_X"> 引用
+                        });
+                        console.log(`[BuyTheWay] Added attachment: ${filename} (cid: image_${index}) from path: ${imgPath}`);
+                    } catch (err) {
+                        console.warn(`[BuyTheWay] Error accessing or preparing attachment for path: ${imgPath}. Error: ${err.message}`);
+                    }
+                } else {
+                    console.warn(`[BuyTheWay] Image path for email attachment does not exist, is not a string, or is not accessible: ${imgPath}`);
+                }
+            });
+        }
+
         let info = await transporter.sendMail(mailOptions);
         console.log("[BuyTheWay] Email sent: %s", info.messageId);
         return { success: true, messageId: info.messageId };

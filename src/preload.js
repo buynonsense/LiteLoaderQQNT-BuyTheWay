@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld("buy_the_way_api", {
 
     // === 邮件通知 ===
     // 发送邮件
-    sendEmail: (emailConfig, subject, body) => ipcRenderer.invoke("buy_the_way.sendEmail", emailConfig, subject, body),
+    sendEmail: (emailConfig, subject, body, imagePaths = []) => ipcRenderer.invoke("buy_the_way.sendEmail", emailConfig, subject, body, imagePaths),
 
     // === 消息处理 ===
     // 渲染进程向主进程发送捕获到的消息

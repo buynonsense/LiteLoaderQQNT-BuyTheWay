@@ -16,14 +16,17 @@ const globalState = {
 // --- Euphony 消息监听实现 ---
 function startEuphonyMessageListener() {
     try {
-        if (typeof window.euphony === 'undefined') {
-            console.error('[BuyTheWay] Euphony 库未加载，无法使用消息监听功能');
+        if (typeof window.euphony === 'undefined' || typeof window.euphony.EventChannel === 'undefined' || typeof window.euphony.Image === 'undefined') {
+            console.error('[BuyTheWay] Euphony 库或其必要组件未加载，无法使用消息监听功能');
+            // 尝试加载 utils/euphony.js (如果它负责初始化 Euphony)
+            // 这取决于你的项目结构，如果 euphony.js 应该由 preload.js 注入或在 renderer.html 中加载
+            // 例如: if (typeof window.loadEuphony === 'function') { window.loadEuphony(); }
+            // 确保 window.euphony.Image 等类型可用
             return;
         }
 
         console.log('[BuyTheWay] 开始初始化 Euphony 消息监听器');
 
-        // 使用 Euphony 的事件通道监听消息
         const eventChannel = window.euphony.EventChannel.withTriggers();
 
         if (!eventChannel) {
@@ -31,21 +34,71 @@ function startEuphonyMessageListener() {
             return;
         }
 
-        // 订阅消息接收事件
-        eventChannel.subscribeEvent('receive-message', async (message, source) => {
+        eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
             try {
-                // 获取消息文本内容
-                const msgContent = message.contentToString();
-
-                // 获取消息来源
                 const contact = source.getContact();
-                const sender = contact.getId(); // 发送者QQ号或群号
+                const senderId = contact.getId();
                 const time = new Date().toLocaleString();
 
-                console.log(`[BuyTheWay] 收到消息 - 来源: ${sender}, 内容: ${msgContent.substring(0, 30)}...`);
+                let msgTextContent = "";
+                let msgImagePaths = [];
 
-                // 处理消息
-                await handleMessage(sender, msgContent, time);
+                // messageChain 是 Euphony 的 MessageChain 实例
+                // 它包含一个消息元素数组，我们需要遍历它
+                if (messageChain && typeof messageChain.get === 'function' && typeof messageChain.contentToString === 'function') {
+                    // 优先使用 contentToString 获取基础文本，然后单独提取图片
+                    // msgTextContent = messageChain.contentToString(); // 这会包含 [图片] 占位符
+
+                    // 遍历消息链中的每个元素
+                    for (let i = 0; ; i++) {
+                        const element = messageChain.get(i);
+                        if (element === undefined) { // 假设 get(index) 在越界时返回 undefined
+                            break;
+                        }
+
+                        if (element instanceof window.euphony.PlainText) {
+                            msgTextContent += element.getContent();
+                        } else if (element instanceof window.euphony.Image) {
+                            const picPath = element.getPath();
+                            if (picPath) {
+                                msgImagePaths.push(picPath);
+                                console.log(`[BuyTheWay] Found image path via Euphony: ${picPath}`);
+                            } else {
+                                console.warn('[BuyTheWay] Euphony Image element found but getPath() returned no path.');
+                            }
+                            // 如果希望在文本中也保留[图片]标记，可以添加
+                            if (!msgTextContent.includes('[图片]')) { // 避免重复添加
+                                // msgTextContent += '[图片]';
+                            }
+                        } else if (element instanceof window.euphony.At) {
+                            msgTextContent += `@${element.getUin()} `; // Euphony At 对象的表示
+                        } else if (element instanceof window.euphony.AtAll) {
+                            msgTextContent += `${element.getContent()} `; // Euphony AtAll 对象的表示
+                        }
+                        // 可以根据需要添加对其他 Euphony 消息类型的处理
+                        // 例如：window.euphony.Audio, window.euphony.Face 等
+                    }
+
+                    // 如果只有图片，且没有文本内容，可以设置一个默认文本
+                    if (msgImagePaths.length > 0 && !msgTextContent.trim()) {
+                        msgTextContent = "[图片消息]";
+                    }
+                    // 如果 Euphony 的 contentToString() 已经满足文本需求，可以直接用，然后单独提取图片路径
+                    // msgTextContent = messageChain.contentToString(); // 这会是 "[图片]文本内容[图片]" 这样的形式
+
+                } else {
+                    console.warn('[BuyTheWay] Euphony messageChain object is not as expected or elements cannot be iterated. Image capture might fail.');
+                    // Fallback to a simpler text extraction if possible, though likely insufficient
+                    if (messageChain && typeof messageChain.contentToString === 'function') {
+                        msgTextContent = messageChain.contentToString();
+                    } else {
+                        msgTextContent = "无法解析的消息内容";
+                    }
+                }
+
+                console.log(`[BuyTheWay] 收到消息 - 来源: ${senderId}, 内容预览: ${msgTextContent.substring(0, 50)}...`, msgImagePaths.length > 0 ? `图片数量: ${msgImagePaths.length}` : '无图片');
+
+                await handleMessage(senderId, msgTextContent, time, msgImagePaths);
 
             } catch (error) {
                 console.error('[BuyTheWay] Euphony 消息处理出错:', error);
@@ -60,13 +113,12 @@ function startEuphonyMessageListener() {
 }
 
 // --- 新增：格式化消息函数 ---
-function formatMessage(template, sender, content, time) {
+function formatMessage(template, sender, content, time, imagePaths = []) {
     let msgBody = '';
     let emailHtmlBody = '';
 
-    // Basic HTML escaping for email body content
     const escapeHtml = (unsafe) => {
-        if (typeof unsafe !== 'string') return unsafe; // Handle non-string input
+        if (typeof unsafe !== 'string') return unsafe;
         return unsafe
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -78,44 +130,87 @@ function formatMessage(template, sender, content, time) {
     const escapedSender = escapeHtml(sender);
     const escapedTime = escapeHtml(time);
 
+    // 为 msgBody 添加图片提示
+    let imageTextHint = "";
+    if (imagePaths.length > 0) {
+        imageTextHint = `
+[包含 ${imagePaths.length} 张图片]`; // 在纯文本消息中提示图片
+    }
+
+    // 为 emailHtmlBody 添加图片预览 (使用 cid)
+    let imageHtmlForEmail = "";
+    if (imagePaths.length > 0) {
+        imageHtmlForEmail += "<p><b>图片内容:</b></p>";
+        imagePaths.forEach((imgPath, index) => {
+            // path.basename 在渲染进程不可用，这里仅用作占位符，实际文件名在主进程生成
+            // 使用 cid:image_0, cid:image_1 等
+            imageHtmlForEmail += `<p><img src="cid:image_${index}" alt="附件图片 ${index + 1}" style="max-width: 100%; height: auto; border: 1px solid #ddd; padding: 2px;"/></p>`;
+        });
+    }
+
+    // 确保内容中的换行符在 HTML <pre> 标签中正确显示
+    const preFormattedContent = `<pre style="white-space: pre-wrap; word-wrap: break-word; margin: 0;">${escapedContent}</pre>`;
+
     switch (template) {
         case 'emoji':
-            msgBody = `🔢 来源：${sender}\n📝 内容：${content}\n⏰ 时间：${time}`;
-            emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p><pre>${escapedContent}</pre><p>⏰ 时间：${escapedTime}</p>`;
+            msgBody = `🔢 来源：${sender}
+📝 内容：${content}${imageTextHint}
+⏰ 时间：${time}`;
+            emailHtmlBody = `<p>🔢 来源：${escapedSender}</p><p>📝 内容：</p>${preFormattedContent}${imageHtmlForEmail}<p>⏰ 时间：${escapedTime}</p>`;
             break;
         case 'brackets':
-            msgBody = `【来源】『${sender}』\n【内容】「${content}」\n【时间】『${time}』`;
-            emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${escapedContent}」</p><p>【时间】『${escapedTime}』</p>`;
+            msgBody = `【来源】『${sender}』
+【内容】「${content}」${imageTextHint}
+【时间】『${time}』`;
+            emailHtmlBody = `<p>【来源】『${escapedSender}』</p><p>【内容】「${preFormattedContent}」</p>${imageHtmlForEmail}<p>【时间】『${escapedTime}』</p>`;
             break;
         case 'symbols':
-            msgBody = `✦ 来源：${sender}\n✧ 内容：${content}\n✦ 时间：${time}`;
-            emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p><pre>${escapedContent}</pre><p>✦ 时间：${escapedTime}</p>`;
+            msgBody = `✦ 来源：${sender}
+✧ 内容：${content}${imageTextHint}
+✦ 时间：${time}`;
+            emailHtmlBody = `<p>✦ 来源：${escapedSender}</p><p>✧ 内容：</p>${preFormattedContent}${imageHtmlForEmail}<p>✦ 时间：${escapedTime}</p>`;
             break;
         case 'markdown_lines':
-            msgBody = `---\n### 来源\n${sender}\n\n### 内容\n${content}\n\n### 时间\n${time}\n---`;
-            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3><pre>${escapedContent}</pre><h3>时间</h3><p>${escapedTime}</p><hr>`;
+            msgBody = `---
+### 来源
+${sender}
+
+### 内容
+${content}${imageTextHint}
+
+### 时间
+${time}
+---`;
+            emailHtmlBody = `<hr><h3>来源</h3><p>${escapedSender}</p><h3>内容</h3>${preFormattedContent}${imageHtmlForEmail}<h3>时间</h3><p>${escapedTime}</p><hr>`;
             break;
         case 'markdown_bold':
-            msgBody = `**来源**：${sender}\n**内容**：${content}\n**时间**：${time}`;
-            emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p><pre>${escapedContent}</pre><p><b>时间</b>：${escapedTime}</p>`;
+            msgBody = `**来源**：${sender}
+**内容**：${content}${imageTextHint}
+**时间**：${time}`;
+            emailHtmlBody = `<p><b>来源</b>：${escapedSender}</p><p><b>内容</b>：</p>${preFormattedContent}${imageHtmlForEmail}<p><b>时间</b>：${escapedTime}</p>`;
             break;
         case 'markdown_table':
-            // Plain text table might not align perfectly
-            msgBody = `| 项目 | 内容       |\n|------|------------|\n| 来源 | ${sender}   |\n| 内容 | ${content}     |\n| 时间 | ${time}    |`;
-            emailHtmlBody = `<table border="1" style="border-collapse: collapse; padding: 5px;">
-                             <thead><tr><th>项目</th><th>内容</th></tr></thead>
+            // 对于表格，内容部分可能需要更复杂的处理以适应 preFormattedContent 和 imageHtmlForEmail
+            msgBody = `| 项目 | 内容       |
+|------|------------|
+| 来源 | ${sender}   |
+| 内容 | ${content}${imageTextHint} |
+| 时间 | ${time}    |`;
+            emailHtmlBody = `<table border="1" style="border-collapse: collapse; width: 100%;">
+                             <thead><tr><th style="padding: 5px; text-align: left;">项目</th><th style="padding: 5px; text-align: left;">内容</th></tr></thead>
                              <tbody>
-                               <tr><td>来源</td><td>${escapedSender}</td></tr>
-                               <tr><td>内容</td><td><pre style="margin:0; padding:0;">${escapedContent}</pre></td></tr>
-                               <tr><td>时间</td><td>${escapedTime}</td></tr>
+                               <tr><td style="padding: 5px;">来源</td><td style="padding: 5px;">${escapedSender}</td></tr>
+                               <tr><td style="padding: 5px;">内容</td><td style="padding: 5px;">${preFormattedContent}${imageHtmlForEmail}</td></tr>
+                               <tr><td style="padding: 5px;">时间</td><td style="padding: 5px;">${escapedTime}</td></tr>
                              </tbody>
                            </table>`;
             break;
         case 'default':
         default:
-            // 默认格式，时间放在底部
-            msgBody = `来源: ${sender}\n内容: ${content}\n时间: ${time}`;
-            emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p>内容：</p><pre>${escapedContent}</pre><p><b>时间</b>: ${escapedTime}</p>`;
+            msgBody = `来源: ${sender}
+内容: ${content}${imageTextHint}
+时间: ${time}`;
+            emailHtmlBody = `<p><b>来源</b>: ${escapedSender}</p><p><b>内容</b>：</p>${preFormattedContent}${imageHtmlForEmail}<p><b>时间</b>: ${escapedTime}</p>`;
             break;
     }
 
@@ -131,7 +226,7 @@ const extractNumbers = (str) => {
 };
 
 // 处理接收到的消息
-async function handleMessage(sender, content, time) {
+async function handleMessage(sender, content, time, imagePaths = []) { // 确保 imagePaths 参数被接收
     try {
         // 加载配置
         let config = null;
@@ -205,10 +300,10 @@ async function handleMessage(sender, content, time) {
             const template = config.messageFormatTemplate || 'default';
             console.log(`[BuyTheWay] 使用消息模板: ${template}`);
 
-            // 使用新函数格式化消息
-            const { msgBody, emailHtmlBody } = formatMessage(template, sender, content, time);
+            // 使用新函数格式化消息, 传入 imagePaths
+            const { msgBody, emailHtmlBody } = formatMessage(template, sender, content, time, imagePaths);
 
-            // 转发到QQ好友 (修改：使用 usersRaw 并提取数字)
+            // 转发到QQ好友
             const forwardToUsersConfig = config.forwardConfig?.toUsers;
             if (forwardToUsersConfig?.enabled) {
                 const usersRaw = forwardToUsersConfig.usersRaw || forwardToUsersConfig.users || []; // Fallback
@@ -220,9 +315,28 @@ async function handleMessage(sender, content, time) {
                         try {
                             const friend = window.euphony.Friend.fromUin(userId);
                             if (friend) {
-                                const msgObj = new window.euphony.PlainText(msgBody);
-                                friend.sendMessage(msgObj);
-                                console.log(`[BuyTheWay] 成功转发到好友 ${userId}`);
+                                // 发送文本部分
+                                if (msgBody.trim()) { // 确保有文本内容才发送
+                                    const msgObj = new window.euphony.PlainText(msgBody);
+                                    await friend.sendMessage(msgObj); // sendMessage is async
+                                    console.log(`[BuyTheWay] 成功转发文本到好友 ${userId}`);
+                                }
+
+                                // Euphony 发送图片逻辑
+                                if (imagePaths.length > 0 && window.euphony.Image && typeof window.euphony.Image === 'function') {
+                                    for (const imgPath of imagePaths) {
+                                        try {
+                                            console.log(`[BuyTheWay] Preparing to send image ${imgPath} to friend ${userId}`);
+                                            const imgMsg = new window.euphony.Image(imgPath); // 使用 Euphony 的 Image 类
+                                            await friend.sendMessage(imgMsg); // sendMessage 可能返回 Promise
+                                            console.log(`[BuyTheWay] 成功转发图片 ${imgPath} 到好友 ${userId}`);
+                                        } catch (imgErr) {
+                                            console.error(`[BuyTheWay] Euphony 转发图片 ${imgPath} 给好友 ${userId} 失败:`, imgErr);
+                                        }
+                                    }
+                                } else if (imagePaths.length > 0) {
+                                    console.warn(`[BuyTheWay] Euphony Image class not available, cannot send images to friend ${userId}.`);
+                                }
                             } else {
                                 console.warn(`[BuyTheWay] 未找到好友 ${userId}，无法转发`);
                             }
@@ -252,9 +366,28 @@ async function handleMessage(sender, content, time) {
                         try {
                             const groupObj = window.euphony.Group.make(groupId);
                             if (groupObj) {
-                                const msgObj = new window.euphony.PlainText(msgBody);
-                                groupObj.sendMessage(msgObj);
-                                console.log(`[BuyTheWay] 成功转发到群 ${groupId}`);
+                                // 发送文本部分
+                                if (msgBody.trim()) {
+                                    const msgObj = new window.euphony.PlainText(msgBody);
+                                    await groupObj.sendMessage(msgObj); // sendMessage is async
+                                    console.log(`[BuyTheWay] 成功转发文本到群 ${groupId}`);
+                                }
+
+                                // Euphony 发送图片逻辑
+                                if (imagePaths.length > 0 && window.euphony.Image && typeof window.euphony.Image === 'function') {
+                                    for (const imgPath of imagePaths) {
+                                        try {
+                                            console.log(`[BuyTheWay] Preparing to send image ${imgPath} to group ${groupId}`);
+                                            const imgMsg = new window.euphony.Image(imgPath);
+                                            await groupObj.sendMessage(imgMsg); // sendMessage is async
+                                            console.log(`[BuyTheWay] 成功转发图片 ${imgPath} 到群 ${groupId}`);
+                                        } catch (imgErr) {
+                                            console.error(`[BuyTheWay] Euphony 转发图片 ${imgPath} 给群聊 ${groupId} 失败:`, imgErr);
+                                        }
+                                    }
+                                } else if (imagePaths.length > 0) {
+                                    console.warn(`[BuyTheWay] Euphony Image class not available, cannot send images to group ${groupId}.`);
+                                }
                             } else {
                                 console.warn(`[BuyTheWay] 未找到群 ${groupId}，无法转发`);
                             }
@@ -274,20 +407,22 @@ async function handleMessage(sender, content, time) {
 
             // 转发到Email (这部分逻辑之前似乎没问题，保持不变)
             if (config.emailConfig && config.emailConfig.enabled) {
-                console.log('[BuyTheWay] 准备通过邮件转发消息');
+                console.log('[BuyTheWay] 准备通过邮件转发消息, 图片数量:', imagePaths.length);
                 const emailConfig = config.emailConfig;
-                const subject = `BuyTheWay 消息匹配: ${sender}`; // Use original sender ID here
+                const subject = `BuyTheWay 消息匹配: ${sender}`;
 
                 if (!window.buy_the_way_api || !window.buy_the_way_api.sendEmail) {
                     console.error('[BuyTheWay] 邮件发送接口不可用');
-                    return;
+                    return; // 修正：应该是 return; 而不是 continue; (因为不在循环中)
                 }
 
                 try {
+                    // 将 imagePaths 传递给 sendEmail API
                     const result = await window.buy_the_way_api.sendEmail(
                         emailConfig,
                         subject,
-                        emailHtmlBody // Use the formatted HTML body
+                        emailHtmlBody, // emailHtmlBody 已包含图片 cid 引用
+                        imagePaths      // 传递原始图片路径列表
                     );
 
                     if (result.success) {
@@ -1170,11 +1305,11 @@ export async function onSettingWindowCreated(view) {
                     }
                 };
                 reader.onerror = (error) => {
-                     console.error('[BuyTheWay] Error reading import file:', error);
-                     if (window.buy_the_way_api?.showToast) {
-                         window.buy_the_way_api.showToast(`读取导入文件失败: ${error.message}`, 'error');
-                     }
-                     importAllInput.value = ''; // Reset file input
+                    console.error('[BuyTheWay] Error reading import file:', error);
+                    if (window.buy_the_way_api?.showToast) {
+                        window.buy_the_way_api.showToast(`读取导入文件失败: ${error.message}`, 'error');
+                    }
+                    importAllInput.value = ''; // Reset file input
                 };
                 reader.readAsText(file);
             });
