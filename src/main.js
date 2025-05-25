@@ -303,6 +303,26 @@ ipcMain.handle("buy_the_way.showOpenDialog", async (event, options) => {
     }
 });
 
+ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
+    try {
+        if (!filePath || typeof filePath !== 'string') {
+            return { exists: false, error: "无效的文件路径" };
+        }
+
+        // 检查文件是否存在且可读
+        try {
+            await fs.promises.access(filePath, fs.constants.F_OK | fs.constants.R_OK);
+            return { exists: true };
+        } catch (accessError) {
+            // 文件不存在或不可读
+            return { exists: false };
+        }
+    } catch (error) {
+        console.error("[BuyTheWay] 检查文件存在性时出错:", error);
+        return { exists: false, error: error.message };
+    }
+});
+
 ipcMain.on("buy_the_way.showToast", (event, message, type = 'info') => {
     console.log(`[BuyTheWay Toast - ${type}]: ${message}`);
     if (Notification.isSupported()) {

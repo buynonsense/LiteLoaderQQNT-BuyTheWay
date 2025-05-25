@@ -13,8 +13,355 @@ const globalState = {
     nodeCache: new Map()
 };
 
+// --- Euphony 增强图片处理工具 (内嵌版本) ---
+
+/**
+ * 图片路径处理和验证工具类
+ * 用于解决 QQ 后台运行时图片文件访问问题
+ */
+class ImagePathResolver {
+    constructor() {
+        this.retryCount = 3;
+        this.retryDelay = 1000; // 1秒
+        this.maxWaitTime = 10000; // 最大等待10秒
+    }
+
+    /**
+     * 验证文件是否存在且可读
+     */
+    async isFileAccessible(filePath) {
+        try {
+            if (!filePath || typeof filePath !== 'string') {
+                return false;
+            }
+
+            // 使用 main 进程的文件系统 API 检查文件
+            if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
+                const result = await window.buy_the_way_api.checkFileExists(filePath);
+                return result.exists;
+            }
+
+            // 如果没有 API，暂时返回 true，让后续处理决定
+            return true;
+        } catch (error) {
+            console.warn(`[BuyTheWay] 检查文件访问性时出错 (${filePath}):`, error);
+            return false;
+        }
+    }    /**
+     * 生成可能的图片路径变体
+     */
+    generatePathVariants(originalPath) {
+        if (!originalPath || typeof originalPath !== 'string') {
+            return [];
+        }
+
+        console.log(`[BuyTheWay] 开始生成路径变体，原始路径: ${originalPath}`);
+
+        const variants = [];
+        
+        try {
+            // 处理Windows路径，统一使用反斜杠
+            const isWindowsPath = originalPath.includes('\\');
+            const pathSeparator = isWindowsPath ? '\\' : '/';
+            
+            // 分离路径和文件名
+            const lastSeparatorIndex = originalPath.lastIndexOf(pathSeparator);
+            if (lastSeparatorIndex === -1) {
+                console.warn(`[BuyTheWay] 路径中没有找到分隔符: ${originalPath}`);
+                return [originalPath];
+            }
+
+            const dirPath = originalPath.substring(0, lastSeparatorIndex);
+            const fileName = originalPath.substring(lastSeparatorIndex + 1);
+            
+            // 分离文件名和扩展名
+            const dotIndex = fileName.lastIndexOf('.');
+            if (dotIndex === -1) {
+                console.warn(`[BuyTheWay] 文件名中没有找到扩展名: ${fileName}`);
+                return [originalPath];
+            }
+
+            const baseName = fileName.substring(0, dotIndex);
+            const fileExt = fileName.substring(dotIndex); // 包含点号
+              console.log(`[BuyTheWay] 路径解析 - 目录: "${dirPath}", 文件名: "${baseName}", 扩展名: "${fileExt}"`);
+
+            // 重要: Thumb目录下的缩略图可能是.jpg或.png格式
+            const thumbExtensions = ['.jpg', '.png'];  // 支持两种扩展名
+            
+            // 检查是否是Ori路径
+            if (dirPath.includes(`${pathSeparator}Ori`)) {
+                // 找到Ori目录的位置并替换为Thumb
+                const oriPattern = `${pathSeparator}Ori`;
+                const oriIndex = dirPath.lastIndexOf(oriPattern);
+                if (oriIndex !== -1) {
+                    const beforeOri = dirPath.substring(0, oriIndex);
+                    const afterOri = dirPath.substring(oriIndex + oriPattern.length);
+                    const thumbDir = beforeOri + `${pathSeparator}Thumb` + afterOri;
+                    
+                    console.log(`[BuyTheWay] Ori->Thumb 路径转换: "${dirPath}" -> "${thumbDir}"`);
+                    
+                    // 生成缩略图路径变体（按优先级排序，同时支持.jpg和.png）
+                    const resolutions = ['_720', '_0', '_200', '_480', ''];
+                    const thumbPaths = [];
+                    
+                    for (const resolution of resolutions) {
+                        for (const thumbExt of thumbExtensions) {
+                            thumbPaths.push(`${thumbDir}${pathSeparator}${baseName}${resolution}${thumbExt}`);
+                        }
+                    }
+                    
+                    variants.push(...thumbPaths);
+                    console.log(`[BuyTheWay] 生成的Thumb路径（包含jpg和png变体）:`, thumbPaths);
+                }
+            } else if (dirPath.includes(`${pathSeparator}Thumb`)) {
+                // 如果已经是Thumb路径，生成不同分辨率的变体
+                const resolutions = ['_720', '_0', '_200', ''];
+                const thumbPaths = [];
+                
+                for (const resolution of resolutions) {
+                    for (const thumbExt of thumbExtensions) {
+                        thumbPaths.push(`${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`);
+                    }
+                }
+                  variants.push(...thumbPaths);
+                console.log(`[BuyTheWay] 已是Thumb路径，生成变体（包含jpg和png）:`, thumbPaths);
+            } else {
+                // 其他情况，尝试在当前目录查找
+                const resolutions = ['_720', '_0'];
+                for (const resolution of resolutions) {
+                    for (const thumbExt of thumbExtensions) {
+                        variants.push(`${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`);
+                    }
+                }
+                console.log(`[BuyTheWay] 其他路径类型，生成基本变体（包含jpg和png）`);
+            }
+
+            // 总是添加原始路径作为最后的备选
+            variants.push(originalPath);
+
+        } catch (error) {
+            console.error(`[BuyTheWay] 路径解析错误:`, error);
+            variants.push(originalPath);
+        }
+
+        // 去除重复项
+        const uniqueVariants = [...new Set(variants)];
+        console.log(`[BuyTheWay] 最终生成 ${uniqueVariants.length} 个路径变体:`, uniqueVariants);
+        
+        return uniqueVariants;
+    }
+
+    /**
+     * 等待文件变为可访问状态
+     */
+    async waitForFileAccess(pathVariants, maxWaitTime = this.maxWaitTime) {
+        const startTime = Date.now();
+        let attempt = 0;
+
+        while (Date.now() - startTime < maxWaitTime) {
+            attempt++;
+
+            // 检查所有路径变体
+            for (const path of pathVariants) {
+                if (await this.isFileAccessible(path)) {
+                    console.log(`[BuyTheWay] 图片文件就绪 (尝试 ${attempt}): ${path}`);
+                    return path;
+                }
+            }
+
+            // 等待后重试
+            if (Date.now() - startTime < maxWaitTime) {
+                console.log(`[BuyTheWay] 图片文件暂未就绪，等待后重试... (尝试 ${attempt})`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+            }
+        }
+
+        console.warn(`[BuyTheWay] 等待图片文件超时 (${maxWaitTime}ms)，所有路径变体都不可访问:`, pathVariants);
+        return null;
+    }
+
+    /**
+     * 解析图片路径，优先使用缩略图并处理延迟问题
+     */
+    async resolveImagePath(originalPath) {
+        try {
+            if (!originalPath) {
+                console.warn('[BuyTheWay] resolveImagePath: 没有提供图片路径');
+                return null;
+            }
+
+            console.log(`[BuyTheWay] 开始解析图片路径: ${originalPath}`);
+
+            // 生成路径变体
+            const pathVariants = this.generatePathVariants(originalPath);
+            console.log(`[BuyTheWay] 生成的路径变体:`, pathVariants);
+
+            // 立即检查是否有可用路径
+            for (const path of pathVariants) {
+                if (await this.isFileAccessible(path)) {
+                    console.log(`[BuyTheWay] 立即找到可用图片路径: ${path}`);
+                    return path;
+                }
+            }
+
+            // 如果没有立即可用的路径，等待文件就绪
+            console.log('[BuyTheWay] 没有立即可用的图片，等待文件就绪...');
+            const resolvedPath = await this.waitForFileAccess(pathVariants);
+
+            if (resolvedPath) {
+                console.log(`[BuyTheWay] 成功解析图片路径: ${resolvedPath}`);
+                return resolvedPath;
+            } else {
+                // 如果所有尝试都失败，返回最优先的路径（让上层处理）
+                console.warn(`[BuyTheWay] 无法访问任何图片路径变体，返回首选路径: ${pathVariants[0] || originalPath}`);
+                return pathVariants[0] || originalPath;
+            }
+
+        } catch (error) {
+            console.error('[BuyTheWay] resolveImagePath 处理出错:', error);
+            return originalPath; // 出错时返回原路径
+        }
+    }
+}
+
+/**
+ * 消息链增强处理器
+ * 用于改进 Euphony MessageChain 的处理，特别是图片处理
+ */
+class MessageChainProcessor {
+    constructor() {
+        this.imageResolver = new ImagePathResolver();
+        this.processingTimeout = 15000; // 15秒超时
+    }
+
+    /**
+     * 处理消息链，提取文本和图片路径
+     */
+    async processMessageChain(messageChain) {
+        let textContent = "";
+        let imagePaths = [];
+
+        try {
+            if (!messageChain || typeof messageChain.get !== 'function') {
+                console.warn('[BuyTheWay] MessageChain 对象无效');
+                return { textContent: "无法解析的消息内容", imagePaths: [] };
+            }
+
+            console.log('[BuyTheWay] 开始处理 MessageChain...');
+            const imagePromises = [];
+
+            // 遍历消息链中的每个元素
+            for (let i = 0; ; i++) {
+                const element = messageChain.get(i);
+                if (element === undefined) {
+                    break;
+                }
+
+                if (element instanceof window.euphony.PlainText) {
+                    textContent += element.getContent();
+                } else if (element instanceof window.euphony.Image) {
+                    // 异步处理图片路径解析
+                    const imagePromise = this.processImageElement(element);
+                    imagePromises.push(imagePromise);
+                } else if (element instanceof window.euphony.At) {
+                    textContent += `@${element.getUin()} `;
+                } else if (element instanceof window.euphony.AtAll) {
+                    textContent += `${element.getContent()} `;
+                } else {
+                    console.log(`[BuyTheWay] 遇到未处理的消息元素类型:`, element.constructor.name);
+                }
+            }
+
+            // 等待所有图片处理完成
+            if (imagePromises.length > 0) {
+                console.log(`[BuyTheWay] 等待 ${imagePromises.length} 个图片处理完成...`);
+
+                try {
+                    const resolvedPaths = await Promise.allSettled(imagePromises);
+
+                    for (const result of resolvedPaths) {
+                        if (result.status === 'fulfilled' && result.value) {
+                            imagePaths.push(result.value);
+                        } else if (result.status === 'rejected') {
+                            console.warn('[BuyTheWay] 图片路径解析失败:', result.reason);
+                        }
+                    }
+                } catch (error) {
+                    console.error('[BuyTheWay] 图片批量处理出错:', error);
+                }
+            }
+
+            // 如果只有图片没有文本，设置默认文本
+            if (imagePaths.length > 0 && !textContent.trim()) {
+                textContent = "[图片消息]";
+            }
+
+            console.log(`[BuyTheWay] MessageChain 处理完成 - 文本: ${textContent.substring(0, 50)}${textContent.length > 50 ? '...' : ''}, 图片数量: ${imagePaths.length}`);
+
+            return { textContent, imagePaths };
+
+        } catch (error) {
+            console.error('[BuyTheWay] processMessageChain 出错:', error);
+            return {
+                textContent: textContent || "消息处理出错",
+                imagePaths: imagePaths || []
+            };
+        }
+    }
+
+    /**
+     * 处理单个图片元素
+     */
+    async processImageElement(imageElement) {
+        try {
+            let originalPath = imageElement.getPath();
+            if (!originalPath) {
+                console.warn('[BuyTheWay] 图片元素没有返回路径');
+                return null;
+            }
+
+            console.log(`[BuyTheWay] 处理图片元素，原始路径: ${originalPath}`);
+
+            // 使用图片路径解析器
+            const resolvedPath = await this.imageResolver.resolveImagePath(originalPath);
+
+            if (resolvedPath) {
+                console.log(`[BuyTheWay] 图片元素处理完成: ${resolvedPath}`);
+                return resolvedPath;
+            } else {
+                console.warn('[BuyTheWay] 图片元素路径解析失败');
+                return null;
+            }
+
+        } catch (error) {
+            console.error('[BuyTheWay] processImageElement 出错:', error);
+            return null;
+        }
+    }
+}
+
+// 导出工具类到全局
+window.BuyTheWayImageUtils = {
+    ImagePathResolver,
+    MessageChainProcessor
+};
+
+console.log('[BuyTheWay] 内嵌 Euphony 增强工具已加载');
+
 // --- Euphony 消息监听实现 ---
 function startEuphonyMessageListener() {
+    console.log('[BuyTheWay] 开始初始化 Euphony 消息监听器（使用内嵌增强工具）');
+    initializeEuphonyListener();
+}
+
+// 移除动态加载函数，直接使用内嵌工具
+function loadEuphonyUtils() {
+    // 工具已经内嵌，直接返回 resolved promise
+    return Promise.resolve();
+}
+
+// 初始化 Euphony 监听器
+function initializeEuphonyListener() {
     try {
         if (typeof window.euphony === 'undefined' || typeof window.euphony.EventChannel === 'undefined' || typeof window.euphony.Image === 'undefined') {
             console.error('[BuyTheWay] Euphony 库或其必要组件未加载，无法使用消息监听功能');
@@ -32,79 +379,72 @@ function startEuphonyMessageListener() {
         if (!eventChannel) {
             console.error('[BuyTheWay] 创建 Euphony 事件通道失败');
             return;
-        }
-
-        eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
+        } eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
             try {
                 const contact = source.getContact();
                 const senderId = contact.getId(); // 这是数字 ID
                 const time = new Date().toLocaleString();
 
                 let msgTextContent = "";
-                let msgImagePaths = [];
-
-                // messageChain 是 Euphony 的 MessageChain 实例
-                // 它包含一个消息元素数组，我们需要遍历它
+                let msgImagePaths = [];                // 使用增强的 MessageChainProcessor 来处理消息链
                 if (messageChain && typeof messageChain.get === 'function' && typeof messageChain.contentToString === 'function') {
-                    // 优先使用 contentToString 获取基础文本，然后单独提取图片
-                    // msgTextContent = messageChain.contentToString(); // 这会包含 [图片] 占位符
+                    console.log('[BuyTheWay] 开始使用增强的 MessageChainProcessor 处理消息');
 
-                    // 遍历消息链中的每个元素
-                    for (let i = 0; ; i++) {
-                        const element = messageChain.get(i);
-                        if (element === undefined) { // 假设 get(index) 在越界时返回 undefined
-                            break;
+                    // 检查是否有 BuyTheWayImageUtils 可用
+                    if (window.BuyTheWayImageUtils && window.BuyTheWayImageUtils.MessageChainProcessor) {
+                        try {
+                            const processor = new window.BuyTheWayImageUtils.MessageChainProcessor();
+                            const result = await processor.processMessageChain(messageChain);
+
+                            msgTextContent = result.textContent || "";
+                            msgImagePaths = result.imagePaths || [];
+
+                            console.log(`[BuyTheWay] 增强处理器完成 - 文本: ${msgTextContent.substring(0, 50)}${msgTextContent.length > 50 ? '...' : ''}, 图片: ${msgImagePaths.length}张`);
+                        } catch (processorError) {
+                            console.error('[BuyTheWay] 增强处理器失败，回退到简单处理:', processorError);
+                            // 回退到简单处理逻辑
+                            await fallbackMessageProcessing();
                         }
+                    } else {
+                        console.warn('[BuyTheWay] BuyTheWayImageUtils 不可用，使用简单处理逻辑');
+                        await fallbackMessageProcessing();
+                    }
 
-                        if (element instanceof window.euphony.PlainText) {
-                            msgTextContent += element.getContent();
-                        } else if (element instanceof window.euphony.Image) {
-                            let picPath = element.getPath();
-                            if (picPath) {
-                                // 如果图片路径包含 \Ori\ (原图), 尝试替换为 \Thumb\ (缩略图)
-                                // 这是为了解决 QQ 后台时原图可能未下载的问题
-                                if (picPath.includes("\\Ori\\")) {
-                                    const thumbPath = picPath.replace("\\Ori\\", "\\Thumb\\");
-                                    console.log(`[BuyTheWay] 原始图片路径: ${picPath}. 尝试使用缩略图路径: ${thumbPath}`);
-                                    picPath = thumbPath; // 使用缩略图路径
-                                }
-                                // Modify filename to include _720 for thumbnails
-                                const dir = picPath.substring(0, picPath.lastIndexOf('/') + 1);
-                                let filename = picPath.substring(picPath.lastIndexOf('/') + 1);
-                                const dotIndex = filename.lastIndexOf('.');
-                                if (dotIndex !== -1) {
-                                    const name = filename.substring(0, dotIndex);
-                                    const ext = filename.substring(dotIndex);
-                                    // Check if it already ends with _XXX or _XXXX (like _720 or _1080)
-                                    if (!/_\d{3,4}$/.test(name)) {
-                                        filename = `${name}_720${ext}`;
-                                        console.log(`[BuyTheWay] Euphony: 为缩略图修改了图片文件名: ${filename}`);
+                    // 简化的回退处理逻辑
+                    async function fallbackMessageProcessing() {
+                        // 遍历消息链中的每个元素
+                        for (let i = 0; ; i++) {
+                            const element = messageChain.get(i);
+                            if (element === undefined) {
+                                break;
+                            }
+
+                            if (element instanceof window.euphony.PlainText) {
+                                msgTextContent += element.getContent();
+                            } else if (element instanceof window.euphony.Image) {
+                                let picPath = element.getPath();
+                                if (picPath) {
+                                    // 简化的图片处理：直接使用缩略图路径
+                                    if (picPath.includes("\\Ori\\")) {
+                                        picPath = picPath.replace("\\Ori\\", "\\Thumb\\");
                                     }
+                                    msgImagePaths.push(picPath);
+                                    console.log(`[BuyTheWay] 简单处理图片路径: ${picPath}`);
+                                } else {
+                                    console.warn('[BuyTheWay] 图片元素未返回路径');
                                 }
-                                msgImagePaths.push(dir + filename);
-                                console.log(`[BuyTheWay] 用于转发的图片路径: ${picPath}`);
-                            } else {
-                                console.warn('[BuyTheWay] Euphony 图片元素已找到，但 getPath() 未返回路径。');
+                            } else if (element instanceof window.euphony.At) {
+                                msgTextContent += `@${element.getUin()} `;
+                            } else if (element instanceof window.euphony.AtAll) {
+                                msgTextContent += `${element.getContent()} `;
                             }
-                            // 如果希望在文本中也保留[图片]标记，可以添加
-                            if (!msgTextContent.includes('[图片]')) { // 避免重复添加
-                                // msgTextContent += '[图片]';
-                            }
-                        } else if (element instanceof window.euphony.At) {
-                            msgTextContent += `@${element.getUin()} `; // Euphony At 对象的表示
-                        } else if (element instanceof window.euphony.AtAll) {
-                            msgTextContent += `${element.getContent()} `; // Euphony AtAll 对象的表示
                         }
-                        // 可以根据需要添加对其他 Euphony 消息类型的处理
-                        // 例如：window.euphony.Audio, window.euphony.Face 等
-                    }
 
-                    // 如果只有图片，且没有文本内容，可以设置一个默认文本
-                    if (msgImagePaths.length > 0 && !msgTextContent.trim()) {
-                        msgTextContent = "[图片消息]";
+                        // 如果只有图片，且没有文本内容，可以设置一个默认文本
+                        if (msgImagePaths.length > 0 && !msgTextContent.trim()) {
+                            msgTextContent = "[图片消息]";
+                        }
                     }
-                    // 如果 Euphony 的 contentToString() 已经满足文本需求，可以直接用，然后单独提取图片路径
-                    // msgTextContent = messageChain.contentToString(); // 这会是 "[图片]文本内容[图片]" 这样的形式
 
                 } else {
                     console.warn('[BuyTheWay] Euphony messageChain 对象与预期不符或元素无法迭代。图片捕获可能会失败。');
