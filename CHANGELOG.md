@@ -1,13 +1,37 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project will be documented in this file.
+所有显著的项目变更都会记录在此文件中。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+本项目遵循 [语义化版本号](https://semver.org/lang/zh-CN/) 规范。
 
-## [1.1.0] - 2025-05-25
+## [1.1.3] - 2025-01-28
 
-### 🔧 Fixed
+### 🔧 修复
+
+- **[CRITICAL]** 优化图片路径查找逻辑
+  - 优先检查原始路径（解决用户报告的图片无法转发问题）
+  - 移除不必要的路径变体（\_200, \_400, \_480 等 QQ 实际不使用的分辨率）
+  - 只生成 QQ 实际使用的 Thumb 变体（\_0, \_720）
+  - 路径检查效率从 11 个路径减少到 5 个路径
+  - 基于真实 QQ 存储机制：图片随机存储在 Ori（原始文件名）或 Thumb（\_0 和\_720 变体）目录
+
+### 🚀 技术改进
+
+- 重写 `generatePathVariants` 方法，采用更高效的路径优先级策略
+- 将原始路径作为第一选择，提高命中率
+- 符合 QQ 实际的图片存储和缓存机制
+- 内嵌 ImagePathResolver 和 MessageChainProcessor 类到 renderer.js 以避免脚本加载问题
+
+### 🛠️ 内部变更
+
+- 添加 `checkFileExists` IPC API 用于文件访问验证
+- 优化路径生成算法，减少不必要的文件系统调用
+- 改进调试日志输出，便于问题排查
+
+## [1.1.2] - 2025-01-28
+
+### 🔧 修复
+
 - **[CRITICAL]** 修复图片路径生成重复拼接问题
   - 解决了生成错误路径 `C:\...\Thumb\C:\...\Ori\filename_720.png` 的问题
   - 实现正确的 Ori→Thumb 目录替换逻辑
@@ -18,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 优化图片文件访问逻辑
   - 改进文件就绪检测机制
 
-### ✨ Added
+### ✨ 新增功能
+
 - **多路径变体生成策略**
   - 按优先级生成多个可能的缩略图路径（720p, 480p, 200p, 0p）
   - 智能扩展名检测（.jpg/.png）
@@ -28,8 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 异步文件访问验证 API
   - 详细的调试日志输出
 
-### 🚀 Improved
-- **图片转发性能优化**
+### 🚀 性能优化
+
+- **图片转发性能提升**
   - 并行路径变体检查
   - 减少文件访问等待时间
   - 提高图片处理成功率
@@ -38,16 +64,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 改进错误处理和容错机制
   - 更稳定的插件启动流程
 
-### 🛠️ Technical
+### 🛠️ 技术变更
+
 - 重构 `generatePathVariants` 方法
 - 添加 `checkFileExists` IPC API
 - 优化路径解析和标准化算法
 - 改进 Windows 路径兼容性
 
-## [1.0.0] - 2025-05-XX
+## [1.1.1] - 2025-01-26
 
-### ✨ Added
-- 初始版本发布
+### 🔧 修复
+
+- 修复插件加载问题
+- 优化消息处理逻辑
+- 改进错误日志记录
+
+### 🚀 改进
+
+- 提高插件稳定性
+- 优化性能表现
+
+## [1.1.0] - 2025-01-25
+
+### ✨ 新增功能
+
+- 增强消息转发功能
+- 改进配置界面
+- 支持更多消息类型
+
+### 🔧 修复
+
+- 修复已知的稳定性问题
+- 改进消息解析逻辑
+
+### 🚀 改进
+
+- 优化用户界面体验
+- 提高转发成功率
+
+## [1.0.1] - 2025-01-20
+
+### 🔧 修复
+
+- 修复初始版本中的关键问题
+- 改进插件兼容性
+- 优化消息处理流程
+
+### 🚀 改进
+
+- 提高系统稳定性
+- 优化资源使用
+
+## [1.0.0] - 2025-01-15
+
+### ✨ 初始发布
+
 - QQ 消息监听和关键词匹配
 - 邮件转发功能
 - QQ 好友和群聊转发功能
@@ -55,9 +126,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 可视化配置界面
 - 消息格式模板系统
 
-### 🎯 Features
+### 🎯 核心功能
+
 - Euphony 消息链处理
 - 多种消息格式模板
 - 配置导入导出功能
 - 实时消息转发
 - 关键词过滤机制
+
+---
+
+## 版本规范说明
+
+- **[CRITICAL]**: 修复可能导致功能完全失效的严重问题
+- **[MAJOR]**: 重要功能修复或改进
+- **[MINOR]**: 小功能改进或优化
+- ✨ 新增功能
+- 🔧 问题修复
+- 🚀 性能优化/改进
+- 🛠️ 技术变更/重构

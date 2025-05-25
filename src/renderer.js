@@ -49,8 +49,7 @@ class ImagePathResolver {
         }
     }    /**
      * 生成可能的图片路径变体
-     */
-    generatePathVariants(originalPath) {
+     */    generatePathVariants(originalPath) {
         if (!originalPath || typeof originalPath !== 'string') {
             return [];
         }
@@ -58,12 +57,12 @@ class ImagePathResolver {
         console.log(`[BuyTheWay] 开始生成路径变体，原始路径: ${originalPath}`);
 
         const variants = [];
-        
+
         try {
             // 处理Windows路径，统一使用反斜杠
             const isWindowsPath = originalPath.includes('\\');
             const pathSeparator = isWindowsPath ? '\\' : '/';
-            
+
             // 分离路径和文件名
             const lastSeparatorIndex = originalPath.lastIndexOf(pathSeparator);
             if (lastSeparatorIndex === -1) {
@@ -73,7 +72,7 @@ class ImagePathResolver {
 
             const dirPath = originalPath.substring(0, lastSeparatorIndex);
             const fileName = originalPath.substring(lastSeparatorIndex + 1);
-            
+
             // 分离文件名和扩展名
             const dotIndex = fileName.lastIndexOf('.');
             if (dotIndex === -1) {
@@ -83,12 +82,17 @@ class ImagePathResolver {
 
             const baseName = fileName.substring(0, dotIndex);
             const fileExt = fileName.substring(dotIndex); // 包含点号
-              console.log(`[BuyTheWay] 路径解析 - 目录: "${dirPath}", 文件名: "${baseName}", 扩展名: "${fileExt}"`);
+            console.log(`[BuyTheWay] 路径解析 - 目录: "${dirPath}", 文件名: "${baseName}", 扩展名: "${fileExt}"`);
 
-            // 重要: Thumb目录下的缩略图可能是.jpg或.png格式
-            const thumbExtensions = ['.jpg', '.png'];  // 支持两种扩展名
-            
-            // 检查是否是Ori路径
+            // QQ图片存储逻辑：图片随机存储在Ori或Thumb目录
+            // Ori目录：原始文件名（如 xxxxx.jpg）
+            // Thumb目录：只有 xxxxx_0 和 xxxxx_720 两个变体
+
+            // 策略1：优先检查原始路径（最常见的情况）
+            variants.push(originalPath);
+            console.log(`[BuyTheWay] 添加原始路径作为第一选择: ${originalPath}`);
+
+            // 策略2：如果是Ori路径，生成对应的Thumb路径变体
             if (dirPath.includes(`${pathSeparator}Ori`)) {
                 // 找到Ori目录的位置并替换为Thumb
                 const oriPattern = `${pathSeparator}Ori`;
@@ -97,47 +101,58 @@ class ImagePathResolver {
                     const beforeOri = dirPath.substring(0, oriIndex);
                     const afterOri = dirPath.substring(oriIndex + oriPattern.length);
                     const thumbDir = beforeOri + `${pathSeparator}Thumb` + afterOri;
-                    
-                    console.log(`[BuyTheWay] Ori->Thumb 路径转换: "${dirPath}" -> "${thumbDir}"`);
-                    
-                    // 生成缩略图路径变体（按优先级排序，同时支持.jpg和.png）
-                    const resolutions = ['_720', '_0', '_200', '_480', ''];
-                    const thumbPaths = [];
-                    
+
+                    console.log(`[BuyTheWay] 检测到Ori路径，生成Thumb变体: "${dirPath}" -> "${thumbDir}"`);
+
+                    // 只生成QQ实际使用的两个Thumb变体：_0 和 _720
+                    // 支持.jpg和.png两种扩展名（QQ可能转换格式）
+                    const thumbExtensions = ['.jpg', '.png'];
+                    const resolutions = ['_0', '_720']; // 只生成QQ实际使用的变体
+
                     for (const resolution of resolutions) {
                         for (const thumbExt of thumbExtensions) {
-                            thumbPaths.push(`${thumbDir}${pathSeparator}${baseName}${resolution}${thumbExt}`);
+                            variants.push(`${thumbDir}${pathSeparator}${baseName}${resolution}${thumbExt}`);
                         }
                     }
-                    
-                    variants.push(...thumbPaths);
-                    console.log(`[BuyTheWay] 生成的Thumb路径（包含jpg和png变体）:`, thumbPaths);
-                }
-            } else if (dirPath.includes(`${pathSeparator}Thumb`)) {
-                // 如果已经是Thumb路径，生成不同分辨率的变体
-                const resolutions = ['_720', '_0', '_200', ''];
-                const thumbPaths = [];
-                
-                for (const resolution of resolutions) {
-                    for (const thumbExt of thumbExtensions) {
-                        thumbPaths.push(`${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`);
-                    }
-                }
-                  variants.push(...thumbPaths);
-                console.log(`[BuyTheWay] 已是Thumb路径，生成变体（包含jpg和png）:`, thumbPaths);
-            } else {
-                // 其他情况，尝试在当前目录查找
-                const resolutions = ['_720', '_0'];
-                for (const resolution of resolutions) {
-                    for (const thumbExt of thumbExtensions) {
-                        variants.push(`${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`);
-                    }
-                }
-                console.log(`[BuyTheWay] 其他路径类型，生成基本变体（包含jpg和png）`);
-            }
 
-            // 总是添加原始路径作为最后的备选
-            variants.push(originalPath);
+                    console.log(`[BuyTheWay] 生成的Thumb路径变体: ${resolutions.length * thumbExtensions.length}个`);
+                }
+            }
+            // 策略3：如果是Thumb路径，生成其他分辨率变体
+            else if (dirPath.includes(`${pathSeparator}Thumb`)) {
+                console.log(`[BuyTheWay] 检测到Thumb路径，生成其他分辨率变体`);
+
+                const thumbExtensions = ['.jpg', '.png'];
+                const resolutions = ['_0', '_720']; // 只生成QQ实际使用的变体
+
+                for (const resolution of resolutions) {
+                    for (const thumbExt of thumbExtensions) {
+                        const variant = `${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`;
+                        // 避免重复添加（原始路径可能已经是某个变体）
+                        if (variant !== originalPath) {
+                            variants.push(variant);
+                        }
+                    }
+                }
+
+                console.log(`[BuyTheWay] 生成的Thumb变体数量: ${variants.length - 1}个（不含原始）`);
+            }
+            // 策略4：其他情况的基本处理
+            else {
+                console.log(`[BuyTheWay] 其他路径类型，生成基本变体`);
+
+                const thumbExtensions = ['.jpg', '.png'];
+                const resolutions = ['_0', '_720'];
+
+                for (const resolution of resolutions) {
+                    for (const thumbExt of thumbExtensions) {
+                        const variant = `${dirPath}${pathSeparator}${baseName}${resolution}${thumbExt}`;
+                        if (variant !== originalPath) {
+                            variants.push(variant);
+                        }
+                    }
+                }
+            }
 
         } catch (error) {
             console.error(`[BuyTheWay] 路径解析错误:`, error);
@@ -147,7 +162,7 @@ class ImagePathResolver {
         // 去除重复项
         const uniqueVariants = [...new Set(variants)];
         console.log(`[BuyTheWay] 最终生成 ${uniqueVariants.length} 个路径变体:`, uniqueVariants);
-        
+
         return uniqueVariants;
     }
 
