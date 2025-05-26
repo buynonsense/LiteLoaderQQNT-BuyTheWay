@@ -24,9 +24,7 @@ class ImagePathResolver {
         this.retryCount = 3;
         this.retryDelay = 1000; // 1秒
         this.maxWaitTime = 10000; // 最大等待10秒
-    }
-
-    /**
+    }    /**
      * 验证文件是否存在且可读
      */
     async isFileAccessible(filePath) {
@@ -35,9 +33,12 @@ class ImagePathResolver {
                 return false;
             }
 
+            // 标准化路径：处理Windows路径中的双斜线问题
+            const normalizedPath = this.normalizePath(filePath);
+
             // 使用 main 进程的文件系统 API 检查文件
             if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
-                const result = await window.buy_the_way_api.checkFileExists(filePath);
+                const result = await window.buy_the_way_api.checkFileExists(normalizedPath);
                 return result.exists;
             }
 
@@ -47,7 +48,25 @@ class ImagePathResolver {
             console.warn(`[BuyTheWay] 检查文件访问性时出错 (${filePath}):`, error);
             return false;
         }
-    }    /**
+    }
+
+    /**
+     * 标准化文件路径，处理Windows路径中的双斜线等问题
+     */
+    normalizePath(filePath) {
+        if (!filePath || typeof filePath !== 'string') {
+            return filePath;
+        }
+
+        // 处理Windows路径
+        if (filePath.includes('\\')) {
+            // 将多个连续的反斜杠替换为单个反斜杠
+            return filePath.replace(/\\+/g, '\\');
+        } else {
+            // 处理Unix路径
+            return filePath.replace(/\/+/g, '/');
+        }
+    }/**
      * 生成可能的图片路径变体
      */    generatePathVariants(originalPath) {
         if (!originalPath || typeof originalPath !== 'string') {
@@ -157,10 +176,8 @@ class ImagePathResolver {
         } catch (error) {
             console.error(`[BuyTheWay] 路径解析错误:`, error);
             variants.push(originalPath);
-        }
-
-        // 去除重复项
-        const uniqueVariants = [...new Set(variants)];
+        }        // 去除重复项并标准化所有路径
+        const uniqueVariants = [...new Set(variants)].map(path => this.normalizePath(path));
         console.log(`[BuyTheWay] 最终生成 ${uniqueVariants.length} 个路径变体:`, uniqueVariants);
 
         return uniqueVariants;
