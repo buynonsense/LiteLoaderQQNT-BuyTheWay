@@ -312,73 +312,92 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
 
         console.log(`[BuyTheWay] 检查文件存在性: ${filePath}`);
 
-        // 检查文件是否存在且可读
+        // 核心原则：分离文件存在性检查和文件可读性检查
+        // 只要能获取到文件统计信息，就认为文件存在
         try {
-            await fs.promises.access(filePath, fs.constants.F_OK | fs.constants.R_OK);
-
-            // 获取文件统计信息以确保文件完整性
             const stats = await fs.promises.stat(filePath);
 
-            // 检查文件大小是否合理（图片文件应该大于0字节）
-            if (stats.size === 0) {
-                console.warn(`[BuyTheWay] 文件大小为0，可能正在写入中: ${filePath}`);
-                return { exists: false, error: "文件大小为0，可能正在写入中", size: 0 };
+            // 文件存在！现在确定文件类型
+            if (stats.isDirectory()) {
+                console.log(`[BuyTheWay] 目录存在: ${filePath}`);
+                return {
+                    exists: true,
+                    isFile: false,
+                    isDirectory: true,
+                    size: stats.size || 0
+                };
             }
 
-            // 检查文件是否最近被修改（可能正在写入）
+            if (!stats.isFile()) {
+                console.warn(`[BuyTheWay] 路径类型未知但存在: ${filePath}`);
+                return {
+                    exists: true,  // 注意：这里改为true，因为路径确实存在
+                    error: "路径类型未知",
+                    isDirectory: stats.isDirectory(),
+                    isFile: stats.isFile()
+                };
+            }
+
+            // 文件存在，现在分析文件状态（但不影响存在性）
             const now = new Date();
             const modifiedTime = stats.mtime;
             const timeDiffMs = now - modifiedTime;
 
-            // 如果文件在100毫秒内被修改，可能还在写入中
-            if (timeDiffMs < 100) {
-                console.warn(`[BuyTheWay] 文件最近被修改(${timeDiffMs}ms前)，可能正在写入中: ${filePath}`);
-                return { exists: false, error: "文件最近被修改，可能正在写入中", recentlyModified: true };
+            let accessWarnings = [];
+            let fileStatus = 'ready'; // ready, writing, empty, permission_issue
+
+            // 检查文件是否可能正在写入（但仍然认为存在）
+            if (stats.size === 0) {
+                accessWarnings.push('文件大小为0，可能正在写入');
+                fileStatus = 'empty';
             }
 
-            console.log(`[BuyTheWay] 文件访问成功: ${filePath} (大小: ${stats.size}字节, 修改时间: ${modifiedTime.toISOString()})`);
+            if (timeDiffMs < 50) {
+                accessWarnings.push(`文件最近被修改(${timeDiffMs}ms前)，可能正在写入`);
+                fileStatus = 'writing';
+            }
+
+            // 检查文件可读性（但不影响存在性）
+            let readable = false;
+            try {
+                await fs.promises.access(filePath, fs.constants.R_OK);
+                readable = true;
+                console.log(`[BuyTheWay] 文件存在且可读: ${filePath} (大小: ${stats.size}字节)`);
+            } catch (readError) {
+                accessWarnings.push(`读取权限受限: ${readError.code}`);
+                fileStatus = 'permission_issue';
+                console.warn(`[BuyTheWay] 文件存在但读取受限: ${filePath} (${readError.code})`);
+            }
+
+            // 记录状态警告（如果有）
+            if (accessWarnings.length > 0) {
+                console.warn(`[BuyTheWay] 文件存在但有访问问题: ${filePath} - ${accessWarnings.join(', ')}`);
+            }
+
             return {
-                exists: true,
+                exists: true,  // 关键：只要stat成功，文件就存在
                 size: stats.size,
                 mtime: modifiedTime,
                 isFile: stats.isFile(),
-                isDirectory: stats.isDirectory()
+                isDirectory: stats.isDirectory(),
+                readable: readable,
+                fileStatus: fileStatus,
+                warnings: accessWarnings.length > 0 ? accessWarnings : undefined
             };
 
-        } catch (accessError) {
-            // 详细记录访问失败的原因
-            console.warn(`[BuyTheWay] 文件访问失败: ${filePath}`, {
-                code: accessError.code,
-                errno: accessError.errno,
-                message: accessError.message
+        } catch (statError) {
+            // 只有stat失败才认为文件不存在
+            console.warn(`[BuyTheWay] 文件不存在或路径无法访问: ${filePath}`, {
+                code: statError.code,
+                errno: statError.errno,
+                message: statError.message
             });
 
-            // 尝试获取更多文件信息
-            try {
-                const stats = await fs.promises.stat(filePath);
-                console.log(`[BuyTheWay] 文件存在但无法访问:`, {
-                    size: stats.size,
-                    isFile: stats.isFile(),
-                    mode: stats.mode,
-                    atime: stats.atime,
-                    mtime: stats.mtime
-                });
-
-                // 如果文件存在但无法访问，可能是权限问题或文件锁定
-                return {
-                    exists: false,
-                    error: accessError.code || accessError.message,
-                    fileExists: true,
-                    possibleCause: "权限问题或文件被锁定"
-                };
-            } catch (statError) {
-                console.warn(`[BuyTheWay] 文件不存在: ${filePath}`);
-                return {
-                    exists: false,
-                    error: accessError.code || accessError.message,
-                    fileExists: false
-                };
-            }
+            return {
+                exists: false,
+                error: statError.code || statError.message,
+                fileExists: false
+            };
         }
     } catch (error) {
         console.error("[BuyTheWay] 检查文件存在性时出错:", error);

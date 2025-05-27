@@ -46,25 +46,47 @@ class ImagePathResolver {
             if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
                 const result = await window.buy_the_way_api.checkFileExists(normalizedPath);
 
-                // 增强的结果处理
+                // 新的处理逻辑：分离存在性和可读性
                 if (result.exists) {
-                    console.log(`[BuyTheWay] 文件访问成功: ${normalizedPath} (大小: ${result.size}字节)`);
-                    return true;
-                } else {
-                    // 根据不同的失败原因提供详细的日志
-                    if (result.recentlyModified) {
-                        console.log(`[BuyTheWay] 文件正在写入中，稍后重试: ${normalizedPath}`);
-                        return false;
-                    } else if (result.size === 0) {
-                        console.log(`[BuyTheWay] 文件大小为0，可能正在写入: ${normalizedPath}`);
-                        return false;
-                    } else if (result.fileExists && result.possibleCause) {
-                        console.warn(`[BuyTheWay] 文件存在但无法访问 (${result.possibleCause}): ${normalizedPath}`);
-                        return false;
-                    } else {
-                        console.log(`[BuyTheWay] 文件不存在: ${normalizedPath} (${result.error})`);
-                        return false;
+                    // 文件存在，检查具体状态
+                    if (result.readable === true) {
+                        console.log(`[BuyTheWay] 文件存在且可读: ${normalizedPath} (大小: ${result.size}字节)`);
+                        return true;
+                    } else if (result.readable === false) {
+                        // 文件存在但读取受限，根据文件状态决定是否可用
+                        if (result.fileStatus === 'permission_issue') {
+                            console.log(`[BuyTheWay] 文件存在但权限受限，仍视为可用: ${normalizedPath}`);
+                            return true; // 权限问题不影响文件的逻辑存在性
+                        } else if (result.fileStatus === 'writing' || result.fileStatus === 'empty') {
+                            console.log(`[BuyTheWay] 文件正在写入中，稍后重试: ${normalizedPath}`);
+                            return false; // 写入中的文件暂时不可用
+                        }
                     }
+
+                    // 如果没有明确的readable字段，但文件存在，则根据其他信息判断
+                    if (result.warnings && result.warnings.length > 0) {
+                        console.log(`[BuyTheWay] 文件存在但有警告，视情况而定: ${normalizedPath} - ${result.warnings.join(', ')}`);
+
+                        // 如果只是权限问题，仍然认为可用
+                        const hasPermissionIssue = result.warnings.some(w => w.includes('权限'));
+                        const hasWritingIssue = result.warnings.some(w => w.includes('写入') || w.includes('大小为0'));
+
+                        if (hasPermissionIssue && !hasWritingIssue) {
+                            return true;
+                        } else if (hasWritingIssue) {
+                            return false;
+                        }
+                    }
+
+                    // 默认情况：文件存在就认为可用
+                    console.log(`[BuyTheWay] 文件存在，默认视为可用: ${normalizedPath}`);
+                    return true;
+
+                } else {
+                    // 文件不存在
+                    const fileName = normalizedPath.split('\\').pop();
+                    console.log(`[BuyTheWay] 文件不存在: ${fileName} (完整路径: ${normalizedPath})`);
+                    return false;
                 }
             }
 
@@ -428,28 +450,35 @@ class ImagePathResolver {
             console.error('[BuyTheWay] resolveImagePath 处理出错:', error);
             return originalPath; // 出错时返回原路径
         }
-    }
-
-    /**
-     * 进行图片路径的预检查和诊断
+    }    /**
+     * 进行图片路径的预检查和诊断 - 优化版本
      */
     async diagnoseImagePath(originalPath) {
         console.log(`[BuyTheWay] 🔍 开始路径诊断: ${originalPath}`);
 
-        // 检查原始路径的目录结构
-        const pathParts = originalPath.split('\\');
-        let currentPath = '';
+        // 只在调试模式下进行深度目录检查
+        const isDebugMode = false; // 可以通过配置控制
 
-        for (let i = 0; i < pathParts.length - 1; i++) {
-            currentPath += pathParts[i];
-            if (i < pathParts.length - 2) currentPath += '\\';
+        if (isDebugMode) {
+            // 检查原始路径的目录结构（仅前几级）
+            const pathParts = originalPath.split('\\');
 
-            const exists = await this.isDirectoryAccessible(currentPath);
-            console.log(`[BuyTheWay] 目录检查: ${currentPath} -> ${exists ? '✅存在' : '❌不存在'}`);
+            for (let i = 1; i <= Math.min(3, pathParts.length - 1); i++) { // 减少检查层级
+                const currentPath = pathParts.slice(0, i).join('\\');
+                if (currentPath.length < 3) continue; // 跳过盘符
 
-            if (!exists && i > 2) { // 跳过盘符检查
-                console.warn(`[BuyTheWay] ⚠️ 目录不存在，可能影响文件访问: ${currentPath}`);
-                break;
+                try {
+                    const exists = await this.isDirectoryAccessible(currentPath);
+                    console.log(`[BuyTheWay] 目录检查: ${currentPath} -> ${exists ? '✅存在' : '❌不存在'}`);
+
+                    if (!exists) {
+                        console.warn(`[BuyTheWay] ⚠️ 目录不存在，可能影响文件访问: ${currentPath}`);
+                        break;
+                    }
+                } catch (error) {
+                    console.warn(`[BuyTheWay] 目录检查出错: ${currentPath}`, error);
+                    break;
+                }
             }
         }
 
