@@ -30,22 +30,65 @@ class ImagePathResolver {
     async isFileAccessible(filePath) {
         try {
             if (!filePath || typeof filePath !== 'string') {
+                console.warn('[BuyTheWay] isFileAccessible: 无效路径', filePath);
                 return false;
             }
 
             // 标准化路径：处理Windows路径中的双斜线问题
             const normalizedPath = this.normalizePath(filePath);
+            
+            // 记录路径标准化的效果
+            if (normalizedPath !== filePath) {
+                console.log(`[BuyTheWay] 路径已标准化: ${filePath} -> ${normalizedPath}`);
+            }
 
             // 使用 main 进程的文件系统 API 检查文件
             if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
                 const result = await window.buy_the_way_api.checkFileExists(normalizedPath);
-                return result.exists;
+                
+                // 增强的结果处理
+                if (result.exists) {
+                    console.log(`[BuyTheWay] 文件访问成功: ${normalizedPath} (大小: ${result.size}字节)`);
+                    return true;
+                } else {
+                    // 根据不同的失败原因提供详细的日志
+                    if (result.recentlyModified) {
+                        console.log(`[BuyTheWay] 文件正在写入中，稍后重试: ${normalizedPath}`);
+                        return false;
+                    } else if (result.size === 0) {
+                        console.log(`[BuyTheWay] 文件大小为0，可能正在写入: ${normalizedPath}`);
+                        return false;
+                    } else if (result.fileExists && result.possibleCause) {
+                        console.warn(`[BuyTheWay] 文件存在但无法访问 (${result.possibleCause}): ${normalizedPath}`);
+                        return false;
+                    } else {
+                        console.log(`[BuyTheWay] 文件不存在: ${normalizedPath} (${result.error})`);
+                        return false;
+                    }
+                }
             }
 
             // 如果没有 API，暂时返回 true，让后续处理决定
+            console.warn('[BuyTheWay] checkFileExists API 不可用，假设文件存在');
             return true;
         } catch (error) {
-            console.warn(`[BuyTheWay] 检查文件访问性时出错 (${filePath}):`, error);
+            console.error(`[BuyTheWay] 检查文件访问性时出错 (${filePath}):`, error);
+            return false;
+        }
+    }
+
+    /**
+     * 检查目录是否存在
+     */
+    async isDirectoryAccessible(dirPath) {
+        try {
+            if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
+                const result = await window.buy_the_way_api.checkFileExists(dirPath);
+                return result.exists;
+            }
+            return true;
+        } catch (error) {
+            console.warn(`[BuyTheWay] 检查目录时出错: ${dirPath}`, error);
             return false;
         }
     }
@@ -181,34 +224,148 @@ class ImagePathResolver {
         console.log(`[BuyTheWay] 最终生成 ${uniqueVariants.length} 个路径变体:`, uniqueVariants);
 
         return uniqueVariants;
-    }
-
-    /**
-     * 等待文件变为可访问状态
+    }    /**
+     * 等待文件变为可访问状态 - 智能重试策略
      */
     async waitForFileAccess(pathVariants, maxWaitTime = this.maxWaitTime) {
         const startTime = Date.now();
         let attempt = 0;
+        const initialDelay = 300; // 初始延迟300ms
+        const maxDelay = 1500; // 最大延迟1.5s
+        
+        console.log(`[BuyTheWay] 开始等待文件就绪，最大等待时间: ${maxWaitTime}ms`);
 
         while (Date.now() - startTime < maxWaitTime) {
             attempt++;
 
             // 检查所有路径变体
-            for (const path of pathVariants) {
-                if (await this.isFileAccessible(path)) {
-                    console.log(`[BuyTheWay] 图片文件就绪 (尝试 ${attempt}): ${path}`);
-                    return path;
+            for (let i = 0; i < pathVariants.length; i++) {
+                const path = pathVariants[i];
+                
+                // 先尝试快速检查
+                if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
+                    try {
+                        const result = await window.buy_the_way_api.checkFileExists(path);
+                        
+                        if (result.exists) {
+                            console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i+1}/${pathVariants.length}): ${path}`);
+                            return path;
+                        } else if (result.recentlyModified || result.size === 0) {
+                            // 文件正在写入中，使用更短的延迟快速重试
+                            console.log(`[BuyTheWay] 📝 文件正在写入中，快速重试: ${path}`);
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            
+                            // 再次检查这个特定路径
+                            const retryResult = await window.buy_the_way_api.checkFileExists(path);
+                            if (retryResult.exists) {
+                                console.log(`[BuyTheWay] ✅ 快速重试成功: ${path}`);
+                                return path;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`[BuyTheWay] 检查文件时出错: ${path}`, error);
+                    }
+                } else {
+                    // 回退到简单检查
+                    const accessible = await this.isFileAccessible(path);
+                    if (accessible) {
+                        console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i+1}/${pathVariants.length}): ${path}`);
+                        return path;
+                    }
                 }
             }
 
-            // 等待后重试
-            if (Date.now() - startTime < maxWaitTime) {
-                console.log(`[BuyTheWay] 图片文件暂未就绪，等待后重试... (尝试 ${attempt})`);
-                await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+            // 计算剩余时间
+            const elapsed = Date.now() - startTime;
+            const remaining = maxWaitTime - elapsed;
+            
+            if (remaining > 0) {
+                // 使用自适应延迟策略：初始快速重试，后续逐渐增加延迟
+                let delay;
+                if (attempt <= 3) {
+                    delay = initialDelay; // 前3次快速重试
+                } else if (attempt <= 8) {
+                    delay = initialDelay + 200; // 中期稍微延长
+                } else {
+                    delay = Math.min(initialDelay + (attempt - 8) * 300, maxDelay); // 后期逐渐增加
+                }
+                
+                const actualDelay = Math.min(delay, remaining);
+                
+                console.log(`[BuyTheWay] 图片文件暂未就绪，等待 ${actualDelay}ms 后重试... (尝试 ${attempt}, 已用时 ${elapsed}ms)`);
+                await new Promise(resolve => setTimeout(resolve, actualDelay));
             }
         }
 
-        console.warn(`[BuyTheWay] 等待图片文件超时 (${maxWaitTime}ms)，所有路径变体都不可访问:`, pathVariants);
+        // 超时后，尝试最后一次检查，优先检查原始路径
+        console.warn(`[BuyTheWay] ⏰ 等待超时，进行最后检查...`);
+        for (const path of pathVariants) {
+            if (await this.isFileAccessible(path)) {
+                console.log(`[BuyTheWay] ✅ 最后检查成功: ${path}`);
+                return path;
+            }
+        }
+
+        console.warn(`[BuyTheWay] ❌ 等待文件超时，尝试次数: ${attempt}`);
+        return null;
+    }    /**
+     * 备用文件等待策略 - 更长时间和更智能的检查
+     */
+    async fallbackFileWait(pathVariants, extendedWaitTime = 20000) {
+        console.log(`[BuyTheWay] 🔄 启动备用等待策略，最大等待时间: ${extendedWaitTime}ms`);
+        
+        const startTime = Date.now();
+        let attempt = 0;
+        const shortDelay = 150; // 更频繁的检查
+        
+        while (Date.now() - startTime < extendedWaitTime) {
+            attempt++;
+            
+            // 只检查最可能的路径（原始路径和主要Thumb变体）
+            const priorityPaths = pathVariants.slice(0, 3); // 前3个最重要的路径
+            
+            for (const path of priorityPaths) {
+                if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
+                    try {
+                        const result = await window.buy_the_way_api.checkFileExists(path);
+                        
+                        if (result.exists) {
+                            console.log(`[BuyTheWay] 🎉 备用策略成功 (尝试 ${attempt}): ${path}`);
+                            return path;
+                        } else if (result.recentlyModified || result.size === 0) {
+                            // 文件正在写入，给出额外的等待时间
+                            console.log(`[BuyTheWay] 📝 备用策略检测到文件正在写入: ${path}`);
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            
+                            // 立即再次检查
+                            const quickRetry = await window.buy_the_way_api.checkFileExists(path);
+                            if (quickRetry.exists) {
+                                console.log(`[BuyTheWay] 🎉 备用策略快速重试成功: ${path}`);
+                                return path;
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`[BuyTheWay] 备用策略检查文件时出错: ${path}`, error);
+                    }
+                } else {
+                    // 回退到旧方法
+                    if (await this.isFileAccessible(path)) {
+                        console.log(`[BuyTheWay] 🎉 备用策略成功 (尝试 ${attempt}): ${path}`);
+                        return path;
+                    }
+                }
+            }
+            
+            // 进度报告
+            if (attempt % 15 === 0) { // 每15次尝试记录一次进度
+                const elapsed = Date.now() - startTime;
+                console.log(`[BuyTheWay] 备用策略进行中... (尝试 ${attempt}, 已用时 ${elapsed}ms)`);
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, shortDelay));
+        }
+        
+        console.warn(`[BuyTheWay] 备用策略也失败了，放弃等待`);
         return null;
     }
 
@@ -224,35 +381,90 @@ class ImagePathResolver {
 
             console.log(`[BuyTheWay] 开始解析图片路径: ${originalPath}`);
 
+            // 进行路径诊断（仅在调试模式下）
+            const diagnosis = await this.diagnoseImagePath(originalPath);
+
             // 生成路径变体
             const pathVariants = this.generatePathVariants(originalPath);
             console.log(`[BuyTheWay] 生成的路径变体:`, pathVariants);
 
             // 立即检查是否有可用路径
-            for (const path of pathVariants) {
+            console.log(`[BuyTheWay] 🔍 立即检查所有路径变体...`);
+            for (let i = 0; i < pathVariants.length; i++) {
+                const path = pathVariants[i];
                 if (await this.isFileAccessible(path)) {
-                    console.log(`[BuyTheWay] 立即找到可用图片路径: ${path}`);
+                    console.log(`[BuyTheWay] ✅ 立即找到可用图片路径 (变体 ${i+1}): ${path}`);
                     return path;
                 }
-            }
-
-            // 如果没有立即可用的路径，等待文件就绪
-            console.log('[BuyTheWay] 没有立即可用的图片，等待文件就绪...');
+            }            // 如果没有立即可用的路径，等待文件就绪
+            console.log('[BuyTheWay] 💤 没有立即可用的图片，开始等待文件就绪...');
             const resolvedPath = await this.waitForFileAccess(pathVariants);
 
             if (resolvedPath) {
-                console.log(`[BuyTheWay] 成功解析图片路径: ${resolvedPath}`);
+                console.log(`[BuyTheWay] ✅ 成功解析图片路径: ${resolvedPath}`);
                 return resolvedPath;
+            }
+            
+            // 如果常规等待失败，尝试备用策略
+            console.log('[BuyTheWay] 🔄 常规等待失败，尝试备用策略...');
+            const fallbackPath = await this.fallbackFileWait(pathVariants);
+            
+            if (fallbackPath) {
+                console.log(`[BuyTheWay] ✅ 备用策略成功: ${fallbackPath}`);
+                return fallbackPath;
             } else {
                 // 如果所有尝试都失败，返回最优先的路径（让上层处理）
-                console.warn(`[BuyTheWay] 无法访问任何图片路径变体，返回首选路径: ${pathVariants[0] || originalPath}`);
-                return pathVariants[0] || originalPath;
+                const finalFallback = pathVariants[0] || originalPath;
+                console.error(`[BuyTheWay] ❌ 所有策略都失败，返回首选路径: ${finalFallback}`);
+                console.error(`[BuyTheWay] 📋 可能的原因:`);
+                console.error(`  1. 文件确实不存在或QQ尚未写入完成`);
+                console.error(`  2. 文件权限问题或被其他进程锁定`);
+                console.error(`  3. 路径格式不正确或目录结构异常`);
+                console.error(`  4. 磁盘空间不足或存储设备问题`);
+                return finalFallback;
             }
 
         } catch (error) {
             console.error('[BuyTheWay] resolveImagePath 处理出错:', error);
             return originalPath; // 出错时返回原路径
         }
+    }
+
+    /**
+     * 进行图片路径的预检查和诊断
+     */
+    async diagnoseImagePath(originalPath) {
+        console.log(`[BuyTheWay] 🔍 开始路径诊断: ${originalPath}`);
+        
+        // 检查原始路径的目录结构
+        const pathParts = originalPath.split('\\');
+        let currentPath = '';
+        
+        for (let i = 0; i < pathParts.length - 1; i++) {
+            currentPath += pathParts[i];
+            if (i < pathParts.length - 2) currentPath += '\\';
+            
+            const exists = await this.isDirectoryAccessible(currentPath);
+            console.log(`[BuyTheWay] 目录检查: ${currentPath} -> ${exists ? '✅存在' : '❌不存在'}`);
+            
+            if (!exists && i > 2) { // 跳过盘符检查
+                console.warn(`[BuyTheWay] ⚠️ 目录不存在，可能影响文件访问: ${currentPath}`);
+                break;
+            }
+        }
+        
+        // 检查是否是已知的QQ图片路径格式
+        const isQQPath = originalPath.includes('nt_qq\\nt_data\\Pic');
+        const hasOriOrThumb = originalPath.includes('\\Ori\\') || originalPath.includes('\\Thumb\\');
+        
+        console.log(`[BuyTheWay] 路径类型分析:`, {
+            isQQPath,
+            hasOriOrThumb,
+            pathLength: originalPath.length,
+            fileName: originalPath.split('\\').pop()
+        });
+        
+        return { isQQPath, hasOriOrThumb };
     }
 }
 
@@ -380,6 +592,73 @@ window.BuyTheWayImageUtils = {
 
 console.log('[BuyTheWay] 内嵌 Euphony 增强工具已加载');
 
+// --- 全局缓存优化 ---
+let globalConfigCache = null;
+let monitoredGroupCache = null;
+let keywordCache = null;
+let cacheTimestamp = 0;
+const CACHE_DURATION = 30000; // 30秒缓存时间
+
+// 获取缓存的配置
+async function getCachedConfig() {
+    const now = Date.now();
+    
+    // 如果缓存有效，返回包含Sets的完整缓存对象
+    if (globalConfigCache && monitoredGroupCache && keywordCache && (now - cacheTimestamp) < CACHE_DURATION) {
+        return {
+            config: globalConfigCache,
+            monitoredGroupSet: monitoredGroupCache,
+            keywordSet: keywordCache
+        };
+    }
+    
+    // 重新加载配置
+    if (window.buy_the_way_api && window.buy_the_way_api.loadConfig) {
+        try {
+            const result = await window.buy_the_way_api.loadConfig();
+            if (result.success && result.config) {
+                globalConfigCache = result.config;
+                cacheTimestamp = now;
+                
+                // 更新缓存的群组和关键词
+                const monitoredGroupsRaw = globalConfigCache.monitoredGroupsRaw || globalConfigCache.monitoredGroups || [];
+                console.log('[BuyTheWay] 加载监控列表原始数据:', monitoredGroupsRaw);
+                
+                monitoredGroupCache = new Set(monitoredGroupsRaw.map(line => {
+                    const match = line.match(/\d+/);
+                    return match ? match[0] : null;
+                }).filter(Boolean));
+                
+                const keywords = globalConfigCache.targetProducts || [];
+                console.log('[BuyTheWay] 加载关键词列表:', keywords);
+                
+                keywordCache = new Set(keywords.map(keyword => keyword.trim().toLowerCase()).filter(Boolean));
+                
+                console.log(`[BuyTheWay] 缓存更新成功 - 监控群组: ${monitoredGroupCache.size}, 关键词: ${keywordCache.size}`);
+                if (monitoredGroupCache.size === 0) {
+                    console.warn('[BuyTheWay] 警告: 监控群组列表为空，请检查配置');
+                }
+                if (keywordCache.size === 0) {
+                    console.warn('[BuyTheWay] 警告: 关键词列表为空，将匹配所有消息');
+                }
+                
+                return {
+                    config: globalConfigCache,
+                    monitoredGroupSet: monitoredGroupCache,
+                    keywordSet: keywordCache
+                };
+            } else {
+                console.error('[BuyTheWay] 配置加载失败:', result);
+            }
+        } catch (error) {
+            console.error('[BuyTheWay] 配置加载异常:', error);
+        }
+    } else {
+        console.error('[BuyTheWay] buy_the_way_api.loadConfig 不可用');
+    }
+    return null;
+}
+
 // --- Euphony 消息监听实现 ---
 function startEuphonyMessageListener() {
     console.log('[BuyTheWay] 开始初始化 Euphony 消息监听器（使用内嵌增强工具）');
@@ -411,14 +690,29 @@ function initializeEuphonyListener() {
         if (!eventChannel) {
             console.error('[BuyTheWay] 创建 Euphony 事件通道失败');
             return;
-        } eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
+        }        eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
             try {
                 const contact = source.getContact();
                 const senderId = contact.getId(); // 这是数字 ID
-                const time = new Date().toLocaleString();
+                  // 使用缓存的配置进行快速预过滤
+                const cachedConfig = await getCachedConfig();
+                
+                // 检查插件是否启用
+                if (!cachedConfig || !cachedConfig.config.pluginEnabled) {
+                    return; // 插件未启用，直接返回
+                }
+                
+                // 使用缓存进行快速预过滤
+                if (cachedConfig.monitoredGroupSet && cachedConfig.monitoredGroupSet.size > 0) {
+                    if (!cachedConfig.monitoredGroupSet.has(String(senderId))) {
+                        console.log(`[BuyTheWay] 预过滤: 消息来源 ${senderId} 不在监控列表中，跳过处理`);
+                        return; // 不在监控列表中，直接返回
+                    }
+                }
 
+                const time = new Date().toLocaleString();
                 let msgTextContent = "";
-                let msgImagePaths = [];                // 使用增强的 MessageChainProcessor 来处理消息链
+                let msgImagePaths = [];// 使用增强的 MessageChainProcessor 来处理消息链
                 if (messageChain && typeof messageChain.get === 'function' && typeof messageChain.contentToString === 'function') {
                     console.log('[BuyTheWay] 开始使用增强的 MessageChainProcessor 处理消息');
 
@@ -486,22 +780,9 @@ function initializeEuphonyListener() {
                     } else {
                         msgTextContent = "无法解析的消息内容";
                     }
-                }
-
-                // Load config to get monitoredGroupsRaw for comment lookup
-                let config = null;
-                if (window.buy_the_way_api && window.buy_the_way_api.loadConfig) {
-                    const result = await window.buy_the_way_api.loadConfig();
-                    if (result.success) {
-                        config = result.config;
-                    } else {
-                        console.error('[BuyTheWay] Euphony: 加载配置以查找来源备注失败:', result.error);
-                        // Continue without comments if config load fails
-                    }
-                }
-
-                const monitoredGroupsRaw = config?.monitoredGroupsRaw || [];
-                const senderWithComment = findSourceWithComment(senderId, monitoredGroupsRaw) || senderId;
+                }                // Load config to get monitoredGroupsRaw for comment lookup (reuse cached config)
+                const finalMonitoredGroupsRaw = cachedConfig?.config?.monitoredGroupsRaw || [];
+                const senderWithComment = findSourceWithComment(senderId, finalMonitoredGroupsRaw) || senderId;
 
 
                 console.log(`[BuyTheWay] 收到消息 - 来源 (带备注): ${senderWithComment}, 内容预览: ${msgTextContent.substring(0, 50)}...`, msgImagePaths.length > 0 ? `图片数量: ${msgImagePaths.length}` : '无图片');
@@ -624,68 +905,42 @@ const extractNumbers = (str) => {
 };
 
 // 处理接收到的消息
-async function handleMessage(senderId, content, time, imagePaths = [], senderWithComment = null) {
-    try {
-        // 加载配置
-        let config = null;
-        if (window.buy_the_way_api && window.buy_the_way_api.loadConfig) {
-            const result = await window.buy_the_way_api.loadConfig();
-            if (result.success) {
-                config = result.config;
-            } else {
-                console.error('[BuyTheWay] 处理消息时加载配置失败:', result.error);
-                return;
-            }
-        } else {
-            console.error('[BuyTheWay] buy_the_way_api.loadConfig 不可用');
+async function handleMessage(senderId, content, time, imagePaths = [], senderWithComment = null) {    try {
+        // 使用缓存系统加载配置
+        const cachedConfig = await getCachedConfig();
+        if (!cachedConfig) {
+            console.error('[BuyTheWay] 无法获取缓存配置，跳过消息处理');
+            return;
+        }        // --- 检查总开关 ---
+        if (!cachedConfig.config.pluginEnabled) {
+            return; // 如果插件在配置中被禁用，则直接返回
+        }
+
+        // 使用缓存的监控组集合进行快速检查
+        const senderIdNumeric = parseInt(senderId);
+        if (!cachedConfig.monitoredGroupSet.has(String(senderIdNumeric))) {
+            console.log(`[BuyTheWay] 消息来源 ${senderId} (显示为: ${senderWithComment || senderId}) 不在监控列表中，跳过处理`);
             return;
         }
 
-        // --- 新增：检查总开关 ---
-        if (!config.pluginEnabled) {
-            // console.log('[BuyTheWay] 插件已通过配置禁用。跳过渲染器中的消息处理。'); // 可以取消注释以进行调试
-            return; // 如果插件在配置中被禁用，则直接返回
-        }
-        // --- 总开关检查结束 ---
-
-        // 检查是否需要监控此消息来源 (使用 Raw 数据并提取数字)
-        const monitoredGroupsRaw = config.monitoredGroups || []; // 备选方案
-        const senderIdNumeric = parseInt(senderId);
-        const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean);
-
-        // 使用 senderId（数字）检查它是否在监控列表中
-        const isMonitored = config.monitoredGroupsRaw && config.monitoredGroupsRaw.some(group => {
-            const groupNumericPart = parseInt(group.match(/\d+/)?.[0]);
-            return !isNaN(groupNumericPart) && groupNumericPart === senderIdNumeric;
-        });
-
-        // 如果未传递 senderWithComment（例如来自较早的调用或不同来源），请尝试查找它
-        if (!senderWithComment && isMonitored) {
-            senderWithComment = getOriginalSenderId(senderId, config.monitoredGroupsRaw) || senderId.toString();
-        } else if (!senderWithComment) {
-            senderWithComment = senderId.toString(); // 如果不在监控列表且没有提供，则默认为 senderId
+        const config = cachedConfig.config;
+        const monitoredGroupsRaw = config.monitoredGroupsRaw || config.monitoredGroups || [];
+        console.log('[BuyTheWay] 监控列表原始数据:', monitoredGroupsRaw);        // 如果未传递 senderWithComment，尝试查找它
+        if (!senderWithComment) {
+            senderWithComment = findSourceWithComment(senderId, monitoredGroupsRaw) || senderId.toString();
         }
 
-        console.log(`[BuyTheWay] 消息来源 ${senderId} (显示为: ${senderWithComment}) 在监控列表 [${monitoredGroupIds.join(', ')}] 中`);
-
-        // 关键词匹配 - 修复逻辑
-        const keywords = config.targetProducts || [];
-        console.log(`[BuyTheWay] 关键词列表: ${JSON.stringify(keywords)}`);
-        console.log(`[BuyTheWay] 消息内容: "${content}"`);
-
+        console.log(`[BuyTheWay] 消息来源 ${senderId} (显示为: ${senderWithComment}) 在监控列表中`);        
+        
+        // 使用缓存的关键词集合进行优化匹配
         let matched = false;
-        if (keywords.length > 0) {
-            // 将消息内容转为小写，用于不区分大小写的比较
+        if (cachedConfig.keywordSet.size > 0) {
             const lowerContent = content.toLowerCase();
-
-            matched = keywords.some(keyword => {
-                // 去除关键词两端的空格并转为小写
-                const lowerKeyword = keyword.trim().toLowerCase();
-                if (!lowerKeyword) return false; // 跳过空关键词
-
-                // 正确的匹配：检查消息内容是否包含关键词
-                const isMatch = lowerContent.includes(lowerKeyword);
-                console.log(`[BuyTheWay] 检查消息 ("${lowerContent}") 是否包含关键词 ("${lowerKeyword}"): ${isMatch ? '是' : '否'}`);
+            
+            // 使用缓存的关键词集合进行快速匹配
+            matched = [...cachedConfig.keywordSet].some(keyword => {
+                const isMatch = lowerContent.includes(keyword);
+                console.log(`[BuyTheWay] 检查消息 ("${lowerContent}") 是否包含关键词 ("${keyword}"): ${isMatch ? '是' : '否'}`);
                 return isMatch;
             });
 
