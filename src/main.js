@@ -315,10 +315,10 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
         // 检查文件是否存在且可读
         try {
             await fs.promises.access(filePath, fs.constants.F_OK | fs.constants.R_OK);
-            
+
             // 获取文件统计信息以确保文件完整性
             const stats = await fs.promises.stat(filePath);
-            
+
             // 检查文件大小是否合理（图片文件应该大于0字节）
             if (stats.size === 0) {
                 console.warn(`[BuyTheWay] 文件大小为0，可能正在写入中: ${filePath}`);
@@ -329,7 +329,7 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
             const now = new Date();
             const modifiedTime = stats.mtime;
             const timeDiffMs = now - modifiedTime;
-            
+
             // 如果文件在100毫秒内被修改，可能还在写入中
             if (timeDiffMs < 100) {
                 console.warn(`[BuyTheWay] 文件最近被修改(${timeDiffMs}ms前)，可能正在写入中: ${filePath}`);
@@ -337,14 +337,14 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
             }
 
             console.log(`[BuyTheWay] 文件访问成功: ${filePath} (大小: ${stats.size}字节, 修改时间: ${modifiedTime.toISOString()})`);
-            return { 
-                exists: true, 
-                size: stats.size, 
+            return {
+                exists: true,
+                size: stats.size,
                 mtime: modifiedTime,
                 isFile: stats.isFile(),
                 isDirectory: stats.isDirectory()
             };
-            
+
         } catch (accessError) {
             // 详细记录访问失败的原因
             console.warn(`[BuyTheWay] 文件访问失败: ${filePath}`, {
@@ -352,7 +352,7 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
                 errno: accessError.errno,
                 message: accessError.message
             });
-            
+
             // 尝试获取更多文件信息
             try {
                 const stats = await fs.promises.stat(filePath);
@@ -363,18 +363,18 @@ ipcMain.handle("buy_the_way.checkFileExists", async (event, filePath) => {
                     atime: stats.atime,
                     mtime: stats.mtime
                 });
-                
+
                 // 如果文件存在但无法访问，可能是权限问题或文件锁定
-                return { 
-                    exists: false, 
+                return {
+                    exists: false,
                     error: accessError.code || accessError.message,
                     fileExists: true,
                     possibleCause: "权限问题或文件被锁定"
                 };
             } catch (statError) {
                 console.warn(`[BuyTheWay] 文件不存在: ${filePath}`);
-                return { 
-                    exists: false, 
+                return {
+                    exists: false,
                     error: accessError.code || accessError.message,
                     fileExists: false
                 };
@@ -462,10 +462,10 @@ async function handleReceivedMessage(message) {
     // 检查是否在监控群组中 (从 Raw 提取数字) - 优化：使用 Set 提升性能
     const monitoredGroupsRaw = currentSettings.monitoredGroupsRaw || currentSettings.monitoredGroups || []; // Fallback for older configs // 旧配置回退
     console.log('[BuyTheWay] 监控列表原始数据:', monitoredGroupsRaw);
-    
+
     const monitoredGroupIds = monitoredGroupsRaw.map(extractNumbers).filter(Boolean); // Extract IDs on the fly // 动态提取ID
     console.log('[BuyTheWay] 监控列表:', monitoredGroupIds);
-    
+
     // 使用 Set 优化查找性能
     const monitoredGroupSet = new Set(monitoredGroupIds);
 
@@ -514,9 +514,9 @@ async function handleReceivedMessage(message) {
     if (keywords.length > 0) {
         // 创建关键词 Set，提升查找性能
         const keywordSet = new Set(keywords.map(keyword => keyword.trim().toLowerCase()).filter(Boolean));
-        
+
         const lowerContent = content.toLowerCase();
-        
+
         // 优化的关键词匹配：对于每个关键词，检查内容是否包含它
         matched = [...keywordSet].some(keyword => {
             const isMatch = lowerContent.includes(keyword);

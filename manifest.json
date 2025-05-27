@@ -3,7 +3,9 @@
   "manifest_version": 4,
   "type": "extension",
   "name": "BuyTheWay",
-  "slug": "buy_the_way",  "description": "收集QQ消息，通过关键词筛选并通知。",    "version": "1.1.5",
+  "slug": "buy_the_way",
+  "description": "收集QQ消息，通过关键词筛选并通知。",
+  "version": "1.1.5",
   "icon": "./icon.png",
   "thumb": "./icon.svg",
   "authors": [

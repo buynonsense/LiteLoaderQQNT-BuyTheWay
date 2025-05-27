@@ -36,7 +36,7 @@ class ImagePathResolver {
 
             // 标准化路径：处理Windows路径中的双斜线问题
             const normalizedPath = this.normalizePath(filePath);
-            
+
             // 记录路径标准化的效果
             if (normalizedPath !== filePath) {
                 console.log(`[BuyTheWay] 路径已标准化: ${filePath} -> ${normalizedPath}`);
@@ -45,7 +45,7 @@ class ImagePathResolver {
             // 使用 main 进程的文件系统 API 检查文件
             if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
                 const result = await window.buy_the_way_api.checkFileExists(normalizedPath);
-                
+
                 // 增强的结果处理
                 if (result.exists) {
                     console.log(`[BuyTheWay] 文件访问成功: ${normalizedPath} (大小: ${result.size}字节)`);
@@ -232,7 +232,7 @@ class ImagePathResolver {
         let attempt = 0;
         const initialDelay = 300; // 初始延迟300ms
         const maxDelay = 1500; // 最大延迟1.5s
-        
+
         console.log(`[BuyTheWay] 开始等待文件就绪，最大等待时间: ${maxWaitTime}ms`);
 
         while (Date.now() - startTime < maxWaitTime) {
@@ -241,20 +241,20 @@ class ImagePathResolver {
             // 检查所有路径变体
             for (let i = 0; i < pathVariants.length; i++) {
                 const path = pathVariants[i];
-                
+
                 // 先尝试快速检查
                 if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
                     try {
                         const result = await window.buy_the_way_api.checkFileExists(path);
-                        
+
                         if (result.exists) {
-                            console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i+1}/${pathVariants.length}): ${path}`);
+                            console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i + 1}/${pathVariants.length}): ${path}`);
                             return path;
                         } else if (result.recentlyModified || result.size === 0) {
                             // 文件正在写入中，使用更短的延迟快速重试
                             console.log(`[BuyTheWay] 📝 文件正在写入中，快速重试: ${path}`);
                             await new Promise(resolve => setTimeout(resolve, 100));
-                            
+
                             // 再次检查这个特定路径
                             const retryResult = await window.buy_the_way_api.checkFileExists(path);
                             if (retryResult.exists) {
@@ -269,7 +269,7 @@ class ImagePathResolver {
                     // 回退到简单检查
                     const accessible = await this.isFileAccessible(path);
                     if (accessible) {
-                        console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i+1}/${pathVariants.length}): ${path}`);
+                        console.log(`[BuyTheWay] ✅ 图片文件就绪 (尝试 ${attempt}, 变体 ${i + 1}/${pathVariants.length}): ${path}`);
                         return path;
                     }
                 }
@@ -278,7 +278,7 @@ class ImagePathResolver {
             // 计算剩余时间
             const elapsed = Date.now() - startTime;
             const remaining = maxWaitTime - elapsed;
-            
+
             if (remaining > 0) {
                 // 使用自适应延迟策略：初始快速重试，后续逐渐增加延迟
                 let delay;
@@ -289,9 +289,9 @@ class ImagePathResolver {
                 } else {
                     delay = Math.min(initialDelay + (attempt - 8) * 300, maxDelay); // 后期逐渐增加
                 }
-                
+
                 const actualDelay = Math.min(delay, remaining);
-                
+
                 console.log(`[BuyTheWay] 图片文件暂未就绪，等待 ${actualDelay}ms 后重试... (尝试 ${attempt}, 已用时 ${elapsed}ms)`);
                 await new Promise(resolve => setTimeout(resolve, actualDelay));
             }
@@ -313,22 +313,22 @@ class ImagePathResolver {
      */
     async fallbackFileWait(pathVariants, extendedWaitTime = 20000) {
         console.log(`[BuyTheWay] 🔄 启动备用等待策略，最大等待时间: ${extendedWaitTime}ms`);
-        
+
         const startTime = Date.now();
         let attempt = 0;
         const shortDelay = 150; // 更频繁的检查
-        
+
         while (Date.now() - startTime < extendedWaitTime) {
             attempt++;
-            
+
             // 只检查最可能的路径（原始路径和主要Thumb变体）
             const priorityPaths = pathVariants.slice(0, 3); // 前3个最重要的路径
-            
+
             for (const path of priorityPaths) {
                 if (window.buy_the_way_api && window.buy_the_way_api.checkFileExists) {
                     try {
                         const result = await window.buy_the_way_api.checkFileExists(path);
-                        
+
                         if (result.exists) {
                             console.log(`[BuyTheWay] 🎉 备用策略成功 (尝试 ${attempt}): ${path}`);
                             return path;
@@ -336,7 +336,7 @@ class ImagePathResolver {
                             // 文件正在写入，给出额外的等待时间
                             console.log(`[BuyTheWay] 📝 备用策略检测到文件正在写入: ${path}`);
                             await new Promise(resolve => setTimeout(resolve, 50));
-                            
+
                             // 立即再次检查
                             const quickRetry = await window.buy_the_way_api.checkFileExists(path);
                             if (quickRetry.exists) {
@@ -355,16 +355,16 @@ class ImagePathResolver {
                     }
                 }
             }
-            
+
             // 进度报告
             if (attempt % 15 === 0) { // 每15次尝试记录一次进度
                 const elapsed = Date.now() - startTime;
                 console.log(`[BuyTheWay] 备用策略进行中... (尝试 ${attempt}, 已用时 ${elapsed}ms)`);
             }
-            
+
             await new Promise(resolve => setTimeout(resolve, shortDelay));
         }
-        
+
         console.warn(`[BuyTheWay] 备用策略也失败了，放弃等待`);
         return null;
     }
@@ -393,7 +393,7 @@ class ImagePathResolver {
             for (let i = 0; i < pathVariants.length; i++) {
                 const path = pathVariants[i];
                 if (await this.isFileAccessible(path)) {
-                    console.log(`[BuyTheWay] ✅ 立即找到可用图片路径 (变体 ${i+1}): ${path}`);
+                    console.log(`[BuyTheWay] ✅ 立即找到可用图片路径 (变体 ${i + 1}): ${path}`);
                     return path;
                 }
             }            // 如果没有立即可用的路径，等待文件就绪
@@ -404,11 +404,11 @@ class ImagePathResolver {
                 console.log(`[BuyTheWay] ✅ 成功解析图片路径: ${resolvedPath}`);
                 return resolvedPath;
             }
-            
+
             // 如果常规等待失败，尝试备用策略
             console.log('[BuyTheWay] 🔄 常规等待失败，尝试备用策略...');
             const fallbackPath = await this.fallbackFileWait(pathVariants);
-            
+
             if (fallbackPath) {
                 console.log(`[BuyTheWay] ✅ 备用策略成功: ${fallbackPath}`);
                 return fallbackPath;
@@ -435,35 +435,35 @@ class ImagePathResolver {
      */
     async diagnoseImagePath(originalPath) {
         console.log(`[BuyTheWay] 🔍 开始路径诊断: ${originalPath}`);
-        
+
         // 检查原始路径的目录结构
         const pathParts = originalPath.split('\\');
         let currentPath = '';
-        
+
         for (let i = 0; i < pathParts.length - 1; i++) {
             currentPath += pathParts[i];
             if (i < pathParts.length - 2) currentPath += '\\';
-            
+
             const exists = await this.isDirectoryAccessible(currentPath);
             console.log(`[BuyTheWay] 目录检查: ${currentPath} -> ${exists ? '✅存在' : '❌不存在'}`);
-            
+
             if (!exists && i > 2) { // 跳过盘符检查
                 console.warn(`[BuyTheWay] ⚠️ 目录不存在，可能影响文件访问: ${currentPath}`);
                 break;
             }
         }
-        
+
         // 检查是否是已知的QQ图片路径格式
         const isQQPath = originalPath.includes('nt_qq\\nt_data\\Pic');
         const hasOriOrThumb = originalPath.includes('\\Ori\\') || originalPath.includes('\\Thumb\\');
-        
+
         console.log(`[BuyTheWay] 路径类型分析:`, {
             isQQPath,
             hasOriOrThumb,
             pathLength: originalPath.length,
             fileName: originalPath.split('\\').pop()
         });
-        
+
         return { isQQPath, hasOriOrThumb };
     }
 }
@@ -602,7 +602,7 @@ const CACHE_DURATION = 30000; // 30秒缓存时间
 // 获取缓存的配置
 async function getCachedConfig() {
     const now = Date.now();
-    
+
     // 如果缓存有效，返回包含Sets的完整缓存对象
     if (globalConfigCache && monitoredGroupCache && keywordCache && (now - cacheTimestamp) < CACHE_DURATION) {
         return {
@@ -611,7 +611,7 @@ async function getCachedConfig() {
             keywordSet: keywordCache
         };
     }
-    
+
     // 重新加载配置
     if (window.buy_the_way_api && window.buy_the_way_api.loadConfig) {
         try {
@@ -619,21 +619,21 @@ async function getCachedConfig() {
             if (result.success && result.config) {
                 globalConfigCache = result.config;
                 cacheTimestamp = now;
-                
+
                 // 更新缓存的群组和关键词
                 const monitoredGroupsRaw = globalConfigCache.monitoredGroupsRaw || globalConfigCache.monitoredGroups || [];
                 console.log('[BuyTheWay] 加载监控列表原始数据:', monitoredGroupsRaw);
-                
+
                 monitoredGroupCache = new Set(monitoredGroupsRaw.map(line => {
                     const match = line.match(/\d+/);
                     return match ? match[0] : null;
                 }).filter(Boolean));
-                
+
                 const keywords = globalConfigCache.targetProducts || [];
                 console.log('[BuyTheWay] 加载关键词列表:', keywords);
-                
+
                 keywordCache = new Set(keywords.map(keyword => keyword.trim().toLowerCase()).filter(Boolean));
-                
+
                 console.log(`[BuyTheWay] 缓存更新成功 - 监控群组: ${monitoredGroupCache.size}, 关键词: ${keywordCache.size}`);
                 if (monitoredGroupCache.size === 0) {
                     console.warn('[BuyTheWay] 警告: 监控群组列表为空，请检查配置');
@@ -641,7 +641,7 @@ async function getCachedConfig() {
                 if (keywordCache.size === 0) {
                     console.warn('[BuyTheWay] 警告: 关键词列表为空，将匹配所有消息');
                 }
-                
+
                 return {
                     config: globalConfigCache,
                     monitoredGroupSet: monitoredGroupCache,
@@ -690,18 +690,18 @@ function initializeEuphonyListener() {
         if (!eventChannel) {
             console.error('[BuyTheWay] 创建 Euphony 事件通道失败');
             return;
-        }        eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
+        } eventChannel.subscribeEvent('receive-message', async (messageChain, source) => { // message 参数现在是 messageChain
             try {
                 const contact = source.getContact();
                 const senderId = contact.getId(); // 这是数字 ID
-                  // 使用缓存的配置进行快速预过滤
+                // 使用缓存的配置进行快速预过滤
                 const cachedConfig = await getCachedConfig();
-                
+
                 // 检查插件是否启用
                 if (!cachedConfig || !cachedConfig.config.pluginEnabled) {
                     return; // 插件未启用，直接返回
                 }
-                
+
                 // 使用缓存进行快速预过滤
                 if (cachedConfig.monitoredGroupSet && cachedConfig.monitoredGroupSet.size > 0) {
                     if (!cachedConfig.monitoredGroupSet.has(String(senderId))) {
@@ -905,7 +905,8 @@ const extractNumbers = (str) => {
 };
 
 // 处理接收到的消息
-async function handleMessage(senderId, content, time, imagePaths = [], senderWithComment = null) {    try {
+async function handleMessage(senderId, content, time, imagePaths = [], senderWithComment = null) {
+    try {
         // 使用缓存系统加载配置
         const cachedConfig = await getCachedConfig();
         if (!cachedConfig) {
@@ -930,13 +931,13 @@ async function handleMessage(senderId, content, time, imagePaths = [], senderWit
             senderWithComment = findSourceWithComment(senderId, monitoredGroupsRaw) || senderId.toString();
         }
 
-        console.log(`[BuyTheWay] 消息来源 ${senderId} (显示为: ${senderWithComment}) 在监控列表中`);        
-        
+        console.log(`[BuyTheWay] 消息来源 ${senderId} (显示为: ${senderWithComment}) 在监控列表中`);
+
         // 使用缓存的关键词集合进行优化匹配
         let matched = false;
         if (cachedConfig.keywordSet.size > 0) {
             const lowerContent = content.toLowerCase();
-            
+
             // 使用缓存的关键词集合进行快速匹配
             matched = [...cachedConfig.keywordSet].some(keyword => {
                 const isMatch = lowerContent.includes(keyword);
